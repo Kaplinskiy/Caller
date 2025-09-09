@@ -198,6 +198,7 @@ let ws = null;         // текущее WS-подключение
 let roomId = null;     // текущая комната
 let memberId = null;   // наш id на сервере
 let role = null;       // 'caller' | 'callee'
+let pingTimer = null;  // таймер keep-alive
 
 async function apiCreateRoom(customId){
   const res = await fetch(`${SERVER_URL}/rooms`, {
