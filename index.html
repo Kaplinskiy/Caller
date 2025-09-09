@@ -158,7 +158,13 @@ function attachRemoteAudio(pc){
 }
 
 async function getMic(){
-  return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }, video:false });
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error('getUserMedia unavailable (insecure context or old browser)');
+  }
+  return navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true },
+    video:false
+  });
 }
 
 // ---- Caller flow ----
