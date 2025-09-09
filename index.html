@@ -152,10 +152,13 @@ function handleHash(){
   const parsed = parseHash();
   if(!parsed) return;
   if(parsed.kind==='offer'){
-    noteEl.textContent='Обнаружена ссылка вызова. Нажмите «Ответить на звонок», чтобы сгенерировать ответ.';
+    // Автостарт для Callee: сразу генерируем answer
+    startCalleeFromHash(parsed.obj).catch(e=>{ setStatus('ошибка ответа','err'); log(e.message||e); });
   } else if(parsed.kind==='answer'){
+    // Для Caller: сразу применяем ответ (или сохраним до старта)
     applyAnswerFromHash(parsed.obj).catch(e=>{ setStatus('ошибка применения ответа','err'); log(e.message||e); });
   }
+}
 }
 
 function tryAutoApplyAnswer(){
