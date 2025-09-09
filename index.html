@@ -1,269 +1,155 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>P2P Voice Call (WebRTC • Manual Signaling)</title>
+  <title>Простой P2P-звонок — обмен через «Поделиться»</title>
   <style>
-    :root { --bg:#0b0f14; --fg:#e8f0fe; --muted:#8aa0b4; --card:#111826; --accent:#3b82f6; }
-    html,body { height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, "Noto Sans", sans-serif; background:var(--bg); color:var(--fg); }
-    .wrap { max-width: 880px; margin: 0 auto; padding: 24px; }
-    h1 { font-size: 22px; margin: 6px 0 16px; }
-    .card { background: var(--card); border: 1px solid #1e293b; border-radius: 16px; padding: 16px; box-shadow: 0 6px 24px rgba(0,0,0,.35); margin-bottom: 16px; }
-    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
-    .row > * { flex:1 1 220px; }
-    label { font-size: 13px; color: var(--muted); display:block; margin: 6px 0; }
-    textarea, input[type="text"] { width:100%; background:#0b1220; color:var(--fg); border:1px solid #253041; border-radius:12px; padding:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    textarea { min-height: 120px; resize: vertical; }
-    button { appearance:none; border:0; background:var(--accent); color:white; padding:12px 16px; border-radius:12px; font-weight:600; cursor:pointer; box-shadow: 0 6px 16px rgba(59,130,246,.35); }
-    button.ghost { background:#1f2937; box-shadow:none; }
-    button:disabled { opacity:.55; cursor:not-allowed; }
-    .muted { color:var(--muted); font-size: 13px; }
-    .pill { display:inline-block; padding:4px 10px; border-radius:999px; background:#152030; border:1px solid #22324a; font-size:12px; color:#b6c7da; }
-    .grid { display:grid; grid-template-columns: 1fr; gap: 16px; }
-    @media (min-width: 860px){ .grid { grid-template-columns: 1fr 1fr; } }
-    audio { width:100%; margin-top:8px; }
-    .ok { color:#22c55e; }
-    .warn { color:#f59e0b; }
-    .err { color:#ef4444; }
-    .small { font-size:12px; }
+    :root { --bg:#0b0f14; --fg:#e8f0fe; --muted:#8aa0b4; --card:#111826; --accent:#22c55e; --accent2:#3b82f6; }
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,'Noto Sans',sans-serif;background:var(--bg);color:var(--fg)}
+    .wrap{max-width:860px;margin:0 auto;padding:24px}
+    h1{font-size:22px;margin:6px 0 16px}
+    .card{background:var(--card);border:1px solid #1e293b;border-radius:16px;padding:16px;box-shadow:0 6px 24px rgba(0,0,0,.35);margin-bottom:16px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .row>*{flex:1 1 220px}
+    button{appearance:none;border:0;background:var(--accent2);color:white;padding:14px 16px;border-radius:14px;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(59,130,246,.35)}
+    .primary{background:var(--accent)}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .muted{color:var(--muted);font-size:13px}
+    .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#152030;border:1px solid #22324a;font-size:12px;color:#b6c7da}
+    textarea{width:100%;min-height:84px;background:#0b1220;color:var(--fg);border:1px solid #253041;border-radius:12px;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    audio{width:100%;margin-top:8px}
+    .hidden{display:none}
+    .ok{color:#22c55e}.warn{color:#f59e0b}.err{color:#ef4444}
+    .big{font-size:18px}
+    .center{text-align:center}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>🔊 P2P Voice Call — WebRTC (manual signaling via messenger)</h1>
-    <p class="muted">Two users call each other directly, exchanging short “keys” (SDP offer/answer) through any messenger. Audio is end‑to‑end encrypted (DTLS‑SRTP). No server for media. Uses STUN only.</p>
+<div class="wrap">
+  <h1>🔊 P2P-звонок (WebRTC) — просто</h1>
+  <p class="muted">Обмен параметрами — через нативное меню «Поделиться» или копированием короткой ссылки. Всё шифруется (DTLS-SRTP).</p>
 
-    <div class="card">
-      <div class="row">
-        <div><span class="pill">Status: <span id="status">idle</span></span></div>
-        <div class="muted" id="note">Grant microphone permission on first action.</div>
-      </div>
-      <audio id="remoteAudio" controls autoplay playsinline></audio>
+  <div class="card">
+    <div class="row">
+      <div><span class="pill">Статус: <span id="status">idle</span></span></div>
+      <div class="muted" id="note">Разрешите доступ к микрофону при первом запросе.</div>
     </div>
+    <audio id="remoteAudio" controls autoplay playsinline></audio>
+  </div>
 
-    <div class="grid">
-      <!-- Caller side -->
-      <div class="card" id="callerCard">
-        <h2>📞 Caller</h2>
-        <ol class="small">
-          <li>Tap <b>Start new call</b> → copy the generated <i>Call Key</i>.</li>
-          <li>Send the <i>Call Key</i> to the callee via messenger.</li>
-          <li>Paste the returned <i>Answer Key</i> and press <b>Connect</b>.</li>
-        </ol>
-        <div class="row">
-          <button id="btnStartCall">Start new call</button>
-          <button class="ghost" id="btnStopCall" disabled>Hang up</button>
-        </div>
-        <label>Call Key (send to callee)</label>
-        <textarea id="offerOut" placeholder="Will appear here after Start new call" readonly></textarea>
-        <label>Answer Key (paste from callee)</label>
-        <textarea id="answerIn" placeholder="Paste callee's Answer Key here"></textarea>
-        <div class="row">
-          <button id="btnAcceptAnswer" disabled>Connect</button>
-          <button class="ghost" id="btnCopyOffer" disabled>Copy Call Key</button>
-        </div>
-      </div>
-
-      <!-- Callee side -->
-      <div class="card" id="calleeCard">
-        <h2>✅ Callee</h2>
-        <ol class="small">
-          <li>Paste <i>Call Key</i> from the caller.</li>
-          <li>Tap <b>Generate Answer</b> → copy the <i>Answer Key</i> and send back.</li>
-        </ol>
-        <label>Call Key (paste from caller)</label>
-        <textarea id="offerIn" placeholder="Paste caller's Call Key here"></textarea>
-        <div class="row">
-          <button id="btnAcceptOffer">Generate Answer</button>
-          <button class="ghost" id="btnStopAnswer" disabled>Hang up</button>
-        </div>
-        <label>Answer Key (send back to caller)</label>
-        <textarea id="answerOut" placeholder="Will appear here after Generate Answer" readonly></textarea>
-        <div class="row">
-          <button class="ghost" id="btnCopyAnswer" disabled>Copy Answer Key</button>
-        </div>
-      </div>
+  <div class="card center">
+    <div class="row">
+      <button id="btnCall" class="primary big">📞 Начать звонок</button>
+      <button id="btnAnswer" class="big">✅ Ответить на звонок</button>
     </div>
+    <div class="muted">Caller нажимает «Начать звонок» и отправляет ссылку через «Поделиться». Callee открывает её → страница генерирует ответ и предложит отправить обратную ссылку.</div>
+  </div>
 
-    <div class="card">
-      <h2>ℹ️ Notes</h2>
-      <ul class="small">
-        <li>Works best when at least one side is not behind strict CG‑NAT. If both are, you may need TURN (relay). This demo doesn’t use TURN by default.</li>
-        <li>The “keys” include ICE candidates. We wait for ICE gathering complete to keep them single‑shot (no trickle).</li>
-        <li>Audio only. Mobile browsers require a user gesture before audio can play.</li>
-      </ul>
+  <div id="shareBlock" class="card hidden">
+    <h2>Поделиться</h2>
+    <div class="row">
+      <button id="btnNativeShare" class="primary">📤 Поделиться ссылкой</button>
+      <button id="btnCopy">📋 Копировать ссылку</button>
+    </div>
+    <label class="muted">Ссылка</label>
+    <textarea id="shareLink" readonly></textarea>
+  </div>
+
+  <div id="answerBanner" class="card hidden">
+    <div class="row">
+      <div class="muted">Получена answer-ссылка. Нажмите, чтобы применить её к текущему звонку.</div>
+      <button id="btnApplyAnswer" class="primary">🔗 Применить ответ</button>
     </div>
   </div>
 
+  <div id="diag" class="card">
+    <h3>Диагностика</h3>
+    <div class="muted" id="diagText">готово</div>
+  </div>
+</div>
+
 <script>
-// ---- Utilities: base64url encode/decode short JSON payloads ----
-function b64uEncode(obj){
-  const s = JSON.stringify(obj);
-  const b = btoa(unescape(encodeURIComponent(s)));
-  return b.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-}
-function b64uDecode(str){
-  const b = (str + '===').slice(0, Math.ceil((str.length)/4)*4).replace(/-/g,'+').replace(/_/g,'/');
-  const s = decodeURIComponent(escape(atob(b)));
-  return JSON.parse(s);
-}
+const statusEl=document.getElementById('status');
+const noteEl=document.getElementById('note');
+const audioEl=document.getElementById('remoteAudio');
+const btnCall=document.getElementById('btnCall');
+const btnAnswer=document.getElementById('btnAnswer');
+const shareBlk=document.getElementById('shareBlock');
+const shareLinkEl=document.getElementById('shareLink');
+const btnNativeShare=document.getElementById('btnNativeShare');
+const btnCopy=document.getElementById('btnCopy');
+const answerBanner=document.getElementById('answerBanner');
+const btnApplyAnswer=document.getElementById('btnApplyAnswer');
 
-// ---- Elements ----
-const statusEl = document.getElementById('status');
-const noteEl = document.getElementById('note');
-const audioEl = document.getElementById('remoteAudio');
+let pc=null,localStream=null,role=null;let pendingAnswer=null;
 
-const btnStartCall = document.getElementById('btnStartCall');
-const btnStopCall  = document.getElementById('btnStopCall');
-const offerOut = document.getElementById('offerOut');
-const answerIn = document.getElementById('answerIn');
-const btnAcceptAnswer = document.getElementById('btnAcceptAnswer');
-const btnCopyOffer = document.getElementById('btnCopyOffer');
-
-const offerIn = document.getElementById('offerIn');
-const btnAcceptOffer = document.getElementById('btnAcceptOffer');
-const btnStopAnswer = document.getElementById('btnStopAnswer');
-const answerOut = document.getElementById('answerOut');
-const btnCopyAnswer = document.getElementById('btnCopyAnswer');
-
-// ---- WebRTC state ----
-let pcCaller = null;
-let pcCallee = null;
-let localStreamCaller = null;
-let localStreamCallee = null;
-
-const iceServers = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:global.stun.twilio.com:3478' }
-];
-
-function setStatus(s, cls=''){ statusEl.textContent = s; statusEl.className = cls; }
-
-function waitIceGathering(pc){
-  return new Promise(resolve => {
-    if (pc.iceGatheringState === 'complete') return resolve();
-    function check(){ if (pc.iceGatheringState === 'complete'){ pc.removeEventListener('icegatheringstatechange', check); resolve(); } }
-    pc.addEventListener('icegatheringstatechange', check);
-    // Safety timeout: resolve after 3s even if not complete
-    setTimeout(()=>{ pc.removeEventListener('icegatheringstatechange', check); resolve(); }, 3000);
-  });
+function makeShareLink(obj){
+  const base=location.origin+location.pathname;
+  return base+'#'+(obj.type==='offer'?'o':'a')+'='+encodeURIComponent(JSON.stringify(obj));
 }
 
-function attachRemoteAudio(pc){
-  pc.addEventListener('track', ev => {
-    const [remoteStream] = ev.streams;
-    audioEl.srcObject = remoteStream;
-  });
+function showShare(url){
+  shareBlk.classList.remove('hidden');
+  shareLinkEl.value=url;
+  navigator.clipboard.writeText(url).catch(()=>{});
+  if(navigator.share){btnNativeShare.onclick=()=>navigator.share({url});}
+  btnCopy.onclick=()=>navigator.clipboard.writeText(url);
 }
 
-async function getMic(){
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error('getUserMedia unavailable (insecure context or old browser)');
+async function startCaller(){
+  role='caller';
+  localStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  pc=new RTCPeerConnection();
+  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+  pc.ontrack=ev=>{audioEl.srcObject=ev.streams[0];};
+  const offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  const url=makeShareLink(pc.localDescription);
+  showShare(url);
+  if(pendingAnswer) applyAnswerFromHash(pendingAnswer);
+}
+
+async function startCalleeFromHash(offerObj){
+  role='callee';
+  localStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  pc=new RTCPeerConnection();
+  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+  pc.ontrack=ev=>{audioEl.srcObject=ev.streams[0];};
+  await pc.setRemoteDescription(new RTCSessionDescription(offerObj));
+  const answer=await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  const url=makeShareLink(pc.localDescription);
+  showShare(url);
+}
+
+async function applyAnswerFromHash(answerObj){
+  if(!pc||!pc.localDescription||pc.localDescription.type!=='offer'){
+    pendingAnswer=answerObj;
+    answerBanner.classList.remove('hidden');
+    return;
   }
-  return navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true },
-    video:false
-  });
+  await pc.setRemoteDescription(new RTCSessionDescription(answerObj));
+  statusEl.textContent='соединено';
+  answerBanner.classList.add('hidden');
 }
 
-// ---- Caller flow ----
-btnStartCall.onclick = async () => {
-  try{
-    setStatus('preparing (caller)…', 'warn');
-    localStreamCaller = await getMic();
-    pcCaller = new RTCPeerConnection({ iceServers });
-    localStreamCaller.getTracks().forEach(t => pcCaller.addTrack(t, localStreamCaller));
-    attachRemoteAudio(pcCaller);
-
-    const offer = await pcCaller.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
-    await pcCaller.setLocalDescription(offer);
-    await waitIceGathering(pcCaller);
-
-    const payload = { sdp: pcCaller.localDescription.sdp, type: pcCaller.localDescription.type };
-    const key = b64uEncode(payload);
-    offerOut.value = key;
-    btnCopyOffer.disabled = false;
-    btnAcceptAnswer.disabled = false;
-    btnStopCall.disabled = false;
-    setStatus('call key ready — send to callee', 'ok');
- } catch (e) {
-  console.error(e);
-  const msg = (e && (e.name || e.message)) ? `${e.name || ''}: ${e.message || ''}` : 'unknown error';
-  setStatus('error starting call', 'err');
-  noteEl.textContent = 'Start error → ' + msg +
-    ' | Tip: HTTPS, разрешение микрофона в системе/браузере/сайте, и правильный выбранный девайс.';
-  alert('Start error: ' + msg + '\n\nПроверь: HTTPS, разрешение микрофона у сайта/браузера/системы, выбранное устройство.');
-}
+btnCall.onclick=()=>startCaller();
+btnAnswer.onclick=()=>{
+  const h=location.hash;
+  if(h.startsWith('#o=')){
+    try{const obj=JSON.parse(decodeURIComponent(h.substring(3)));startCalleeFromHash(obj);}catch(e){console.error(e);}
+  }
 };
+btnApplyAnswer.onclick=()=>{if(pendingAnswer) applyAnswerFromHash(pendingAnswer)};
 
-btnCopyOffer.onclick = async () => {
-  if (!offerOut.value) return;
-  await navigator.clipboard.writeText(offerOut.value);
-  noteEl.textContent = 'Call Key copied to clipboard';
-};
-
-btnAcceptAnswer.onclick = async () => {
-  try{
-    const key = (answerIn.value||'').trim();
-    if(!key) return alert('Paste Answer Key first');
-    const answer = b64uDecode(key);
-    await pcCaller.setRemoteDescription(new RTCSessionDescription(answer));
-    setStatus('connected (caller)', 'ok');
-  } catch(e){ console.error(e); setStatus('error applying answer', 'err'); }
-};
-
-btnStopCall.onclick = () => {
-  if (pcCaller) pcCaller.close();
-  if (localStreamCaller) localStreamCaller.getTracks().forEach(t=>t.stop());
-  pcCaller = null; localStreamCaller = null;
-  offerOut.value = ''; answerIn.value='';
-  btnCopyOffer.disabled = true; btnAcceptAnswer.disabled = true; btnStopCall.disabled = true;
-  setStatus('idle');
-};
-
-// ---- Callee flow ----
-btnAcceptOffer.onclick = async () => {
-  try{
-    const key = (offerIn.value||'').trim();
-    if(!key) return alert('Paste Call Key first');
-
-    setStatus('preparing (callee)…', 'warn');
-    const offer = b64uDecode(key);
-
-    localStreamCallee = await getMic();
-    pcCallee = new RTCPeerConnection({ iceServers });
-    localStreamCallee.getTracks().forEach(t => pcCallee.addTrack(t, localStreamCallee));
-    attachRemoteAudio(pcCallee);
-
-    await pcCallee.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pcCallee.createAnswer();
-    await pcCallee.setLocalDescription(answer);
-    await waitIceGathering(pcCallee);
-
-    const payload = { sdp: pcCallee.localDescription.sdp, type: pcCallee.localDescription.type };
-    const keyOut = b64uEncode(payload);
-    answerOut.value = keyOut;
-    btnCopyAnswer.disabled = false; btnStopAnswer.disabled = false;
-    setStatus('answer ready — send back to caller', 'ok');
-  } catch(e){ console.error(e); setStatus('error generating answer', 'err'); }
-};
-
-btnCopyAnswer.onclick = async () => {
-  if (!answerOut.value) return;
-  await navigator.clipboard.writeText(answerOut.value);
-  noteEl.textContent = 'Answer Key copied to clipboard';
-};
-
-btnStopAnswer.onclick = () => {
-  if (pcCallee) pcCallee.close();
-  if (localStreamCallee) localStreamCallee.getTracks().forEach(t=>t.stop());
-  pcCallee = null; localStreamCallee = null;
-  offerIn.value = ''; answerOut.value='';
-  btnCopyAnswer.disabled = true; btnStopAnswer.disabled = true;
-  setStatus('idle');
-};
-
+// автообработка при загрузке
+window.addEventListener('load',()=>{
+  const h=location.hash;
+  if(h.startsWith('#a=')){
+    try{const obj=JSON.parse(decodeURIComponent(h.substring(3)));applyAnswerFromHash(obj);}catch(e){console.error(e);}
+  }
+});
 </script>
 </body>
 </html>
