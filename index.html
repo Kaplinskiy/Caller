@@ -214,9 +214,20 @@ function connectWS(_role, rid){
     const url = `${SERVER_URL.replace('http','ws')}/ws?roomId=${encodeURIComponent(rid)}&role=${encodeURIComponent(_role)}`;
     addLog('signal', 'connect WS '+url);
     ws = new WebSocket(url);
-    ws.onopen   = ()=>{ addLog('signal','ws open'); };
+    ws.onopen = ()=>{
+      addLog('signal','ws open');
+      // пингуем раз в 20с
+      clearInterval(pingTimer);
+      pingTimer = setInterval(()=> {
+        if (ws && ws.readyState === 1) wsSend('ping', { t: Date.now() });
+      }, 20000);
+    };
     ws.onerror  = (e)=>{ addLog('error','ws error'); };
-    ws.onclose  = (e)=>{ addLog('signal',`ws close code=${e.code}`); setStatus('WS закрыт','warn'); };
+    ws.onclose = (e)=>{
+      addLog('signal',`ws close code=${e.code}`);
+      clearInterval(pingTimer);
+      setStatus('WS закрыт','warn');
+    };
     ws.onmessage= (ev)=>{
       let msg; try{ msg = JSON.parse(ev.data); }catch{ addLog('error','ws bad json'); return; }
       addLog('signal','recv '+msg.type);
