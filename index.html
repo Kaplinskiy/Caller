@@ -83,6 +83,14 @@ const btnCopy=document.getElementById('btnCopy');
 const answerBanner=document.getElementById('answerBanner');
 const btnApplyAnswer=document.getElementById('btnApplyAnswer');
 
+// Временная диагностика
+window.addEventListener('unhandledrejection', e => {
+  alert('UnhandledRejection: ' + (e.reason?.message || e.reason || 'unknown'));
+});
+window.onerror = (msg, src, line, col, err) => {
+  alert('Error: ' + (err?.message || msg));
+};
+  
 function setStatus(s,cls=''){statusEl.textContent=s;statusEl.className=cls;}
 function log(m){diagEl.textContent=String(m);} 
 
@@ -100,20 +108,47 @@ function parseHash(){ const h=location.hash.replace(/^#/,''); if(!h) return null
 function waitIce(pc){ return new Promise(res=>{ if(pc.iceGatheringState==='complete') return res(); const done=()=>{ if(pc.iceGatheringState==='complete'){ pc.removeEventListener('icegatheringstatechange',done); res(); } }; pc.addEventListener('icegatheringstatechange',done); setTimeout(()=>{ pc.removeEventListener('icegatheringstatechange',done); res(); }, 2500); }); }
 
 async function startCaller(){
-  role='caller'; setStatus('подготовка…','warn');
-  localStream = await getMic();
-  pc = new RTCPeerConnection({ iceServers });
-  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-  attachRemoteAudio(pc);
-  const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
-  await pc.setLocalDescription(offer);
-  await waitIce(pc); // ждём ICE, чтобы ссылка была самодостаточной
-  const url = makeShareLink(pc.localDescription);
-  showShare(url);
-  setStatus('отправьте ссылку собеседнику','ok');
-  tryAutoApplyAnswer();
-}
+  try{
+    role = 'caller';
+    setStatus('подготовка…','warn');
+    log('Caller: запрашиваем микрофон');
+    // Явно проверяем поддержку и права
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('getUserMedia недоступен (нужно HTTPS/современный браузер)');
+    }
 
+    localStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true },
+      video: false
+    });
+
+    pc = new RTCPeerConnection({ iceServers: [
+      { urls:'stun:stun.l.google.com:19302' },
+      { urls:'stun:global.stun.twilio.com:3478' }
+    ]});
+
+    localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+    attachRemoteAudio(pc);
+
+    const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
+    await pc.setLocalDescription(offer);
+
+    // ждём ICE → ссылка самодостаточная
+    await waitIce(pc);
+
+    const url = makeShareLink(pc.localDescription);
+    showShare(url);
+    setStatus('отправьте ссылку собеседнику','ok');
+
+    // если ответ уже пришёл по ссылке раньше — применим автоматически
+    tryAutoApplyAnswer();
+  } catch(e){
+    console.error(e);
+    setStatus('ошибка старта','err');
+    log(e.message || e);
+    alert('Start error: ' + (e.message || e));
+  }
+}
 async function startCalleeFromHash(offerObj){
   role='callee'; setStatus('генерируем ответ…','warn');
   localStream = await getMic();
