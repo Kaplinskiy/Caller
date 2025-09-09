@@ -131,7 +131,6 @@ const btnCopy   = document.getElementById('btnCopy');
 const shareHint = document.getElementById('shareHint');
 const answerBanner = document.getElementById('answerBanner');
 const btnStartAndApply = document.getElementById('btnStartAndApply');
-const SERVER_URL = 'ttps://webrtc-signal-4t7n.onrender.com';
 
 const dbgProto = document.getElementById('dbgProto');
 const dbgSecure= document.getElementById('dbgSecure');
@@ -194,7 +193,7 @@ function renderEnv(){
 
 // ========= СИГНАЛИНГ: Render-сервер =========
 // !! ВАЖНО: замените на ваш URL Render (пример): https://your-service.onrender.com
-const SERVER_URL = 'https://YOUR-RENDER-SERVICE.onrender.com'; // TODO: ПОДСТАВЬТЕ СВОЙ ХОСТ
+const SERVER_URL = 'https://webrtc-signal-4t7n.onrender.com'; // ваш Render-сервер
 let ws = null;         // текущее WS-подключение
 let roomId = null;     // текущая комната
 let memberId = null;   // наш id на сервере
@@ -321,7 +320,8 @@ btnCopyDiag.onclick=async()=>{
     'RTCPeerConnection: '+(typeof RTCPeerConnection),
     'server: '+SERVER_URL,
     'room: '+(roomId||parseRoomFromUrl()||'-')
-  ].join('\n');
+  ].join('
+');
   try{ await navigator.clipboard.writeText(report); addLog('info','diag copied'); }
   catch{ addLog('error','diag copy failed'); alert(report); }
 };
