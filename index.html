@@ -133,6 +133,7 @@ const envBanner= document.getElementById('envBanner');
 const audioEl  = document.getElementById('remoteAudio');
 const ctaBlock = document.getElementById('ctaBlock');
 const btnCall  = document.getElementById('btnCall');
+let readyToCall = false;
 const btnAnswer= document.getElementById('btnAnswer');
 const shareBlk = document.getElementById('shareBlock');
 const shareLinkEl = document.getElementById('shareLink');
@@ -198,7 +199,6 @@ let ws = null;         // текущее WS-подключение
 let roomId = null;     // текущая комната
 let memberId = null;   // наш id на сервере
 let role = null;       // 'caller' | 'callee'
-let pingTimer = null;  // таймер keep-alive
 
 async function apiCreateRoom(customId){
   const res = await fetch(`${SERVER_URL}/rooms`, {
@@ -215,31 +215,21 @@ function connectWS(_role, rid){
     const url = `${SERVER_URL.replace('http','ws')}/ws?roomId=${encodeURIComponent(rid)}&role=${encodeURIComponent(_role)}`;
     addLog('signal', 'connect WS '+url);
     ws = new WebSocket(url);
-    ws.onopen = ()=>{
-      addLog('signal','ws open');
-      // пингуем раз в 20с
-      clearInterval(pingTimer);
-      pingTimer = setInterval(()=> {
-        if (ws && ws.readyState === 1) wsSend('ping', { t: Date.now() });
-      }, 20000);
-    };
+    ws.onopen   = ()=>{ addLog('signal','ws open'); };
     ws.onerror  = (e)=>{ addLog('error','ws error'); };
-    ws.onclose = (e)=>{
-      addLog('signal',`ws close code=${e.code}`);
-      clearInterval(pingTimer);
-      setStatus('WS закрыт','warn');
-    };
+    ws.onclose  = (e)=>{ addLog('signal',`ws close code=${e.code}`); setStatus('WS закрыт','warn'); };
     ws.onmessage= (ev)=>{
       let msg; try{ msg = JSON.parse(ev.data); }catch{ addLog('error','ws bad json'); return; }
       addLog('signal','recv '+msg.type);
       if(msg.type==='hello'){
-        memberId = msg.memberId; setStatus(`WS ok. Комната ${roomId}`,'ok'); resolve(msg);
+        memberId = msg.memberId; setStatus(`WS ok. Комната ${roomId}`,'ok');
       } else if(msg.type==='member.joined'){
         noteEl.textContent = 'В комнату вошёл участник';
+        // Если мы Caller и уже подготовили микрофон/PC — отправим оффер сразу (есть user‑gesture)
+        if(role==='caller'){ sendOfferIfPossible(); }
       } else if(msg.type==='member.left'){
         noteEl.textContent = 'Участник покинул комнату';
       } else if(msg.type==='offer'){
-        // Получен оффер → это входящий звонок
         pendingOffer = msg.payload;
         incoming.classList.remove('hidden');
         setStatus('Входящий звонок — нажмите Принять','warn');
@@ -271,7 +261,7 @@ function shareRoomLink(rid){
 }
 
 // ========= WebRTC ядро =========
-let pc=null, localStream=null; let pendingOffer=null;
+let pc=null, localStream=null; let pendingOffer=null; let offerSent=false;
 const iceServers=[ { urls:'stun:stun.l.google.com:19302' }, { urls:'stun:global.stun.twilio.com:3478' } ];
 
 function createPC(){
@@ -295,6 +285,43 @@ async function getMic(){
 async function startCaller(){
   try{
     if(!ws || ws.readyState!==1){ throw new Error('WS не подключён'); }
+    setStatus('подготовка…','warn');
+    localStream = await getMic();
+    createPC();
+    localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+    readyToCall = true;
+    addLog('webrtc','pc ready, waiting peer to join');
+    // оффер ушлёт sendOfferIfPossible() при member.joined или при повторном клике
+    setStatus('Комната готова. Ждём собеседника…','ok');
+  }catch(e){ setStatus('ошибка старта','err'); addLog('error', e.message||e); alert('Start error: '+(e.message||e)); }
+}
+
+async function sendOfferIfPossible(){
+  try{
+    if(offerSent) return;
+    if(!(ws && ws.readyState===1)) return;
+    if(!(pc && localStream)) return;
+    // создаём и отправляем оффер
+    const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
+    await pc.setLocalDescription(offer);
+    addLog('webrtc','offer created');
+    wsSend('offer', pc.localDescription);
+    offerSent = true;
+    setStatus('отправлен оффер — ждём ответ','ok');
+  }catch(e){ addLog('error','sendOffer: '+(e.message||e)); setStatus('ошибка отправки оффера','err'); }
+}
+    setStatus('подготовка…','warn');
+    localStream = await getMic();
+    createPC();
+    localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+    const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
+    await pc.setLocalDescription(offer);
+    addLog('webrtc','offer created');
+    wsSend('offer', pc.localDescription);
+    offerSent = true;
+    setStatus('отправлен оффер — ждём ответ','ok');
+  }catch(e){ setStatus('ошибка старта','err'); addLog('error', e.message||e); alert('Start error: '+(e.message||e)); }
+}
     setStatus('подготовка…','warn');
     localStream = await getMic();
     createPC();
@@ -334,12 +361,20 @@ async function initByUrl(){
 // ========= Кнопки =========
 btnCall.onclick = async ()=>{
   try{
+    // Если уже есть подключение WS и PC готов — трактуем как «Позвонить» (отправить оффер)
+    if(ws && ws.readyState===1 && readyToCall){
+      addLog('action','btnCall → sendOfferIfPossible');
+      await sendOfferIfPossible();
+      return;
+    }
+    // Иначе: создаём комнату, подключаемся к WS, готовим микрофон/PC под user‑gesture
     setStatus('Создаём комнату…','warn');
     const { roomId: rid } = await apiCreateRoom();
     await connectWS('caller', rid);
     shareRoomLink(rid);
-    setStatus('Комната создана. Поделитесь ссылкой','ok');
-    // После того как второй участник зайдёт — можно жать «Начать звонок» повторно, чтобы отправить оффер
+    // Подготовим медиа/PC сразу (есть жест пользователя) — оффер уйдёт, когда peer войдёт
+    await startCaller();
+    setStatus('Комната готова. Поделитесь ссылкой или ждите входа собеседника','ok');
   }catch(e){ setStatus('ошибка создания комнаты','err'); addLog('error', e.message||e); }
 };
 
@@ -376,7 +411,8 @@ btnCopyDiag.onclick=async()=>{
     'RTCPeerConnection: '+(typeof RTCPeerConnection),
     'server: '+SERVER_URL,
     'room: '+(roomId||parseRoomFromUrl()||'-')
-  ].join('\n');
+  ].join('
+');
   try{ await navigator.clipboard.writeText(report); }
   catch{ alert(report); }
 };
