@@ -88,8 +88,6 @@
       <button id="btnStartAndApply" class="primary big">▶️ Начать и применить ответ</button>
     </div>
   </div>
-      <button id="btnStartAndApply" class="primary big">▶️ Начать и применить ответ</button>
-    </div>
   </div>
       <button id="btnStartAndApply" class="primary big">▶️ Начать и применить ответ</button>
     </div>
@@ -167,8 +165,6 @@ function addLog(level, msg){
 // ========= Детект in‑app =========
 function detectInApp(){
   const ua = navigator.userAgent || '';
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
-  const isAndroid = /Android/i.test(ua);
   const isWhatsApp = /WhatsApp/i.test(ua) || (/wv\)/i.test(ua) && /WhatsApp/i.test(navigator.appVersion||''));
   const isFB = /FBAN|FBAV|FB_IAB|FBAN\//i.test(ua);
   const isIG = /Instagram/i.test(ua);
@@ -199,6 +195,7 @@ let ws = null;         // текущее WS-подключение
 let roomId = null;     // текущая комната
 let memberId = null;   // наш id на сервере
 let role = null;       // 'caller' | 'callee'
+let pingTimer = null;  // keep-alive
 
 async function apiCreateRoom(customId){
   const res = await fetch(`${SERVER_URL}/rooms`, {
@@ -215,14 +212,14 @@ function connectWS(_role, rid){
     const url = `${SERVER_URL.replace('http','ws')}/ws?roomId=${encodeURIComponent(rid)}&role=${encodeURIComponent(_role)}`;
     addLog('signal', 'connect WS '+url);
     ws = new WebSocket(url);
-    ws.onopen   = ()=>{ addLog('signal','ws open'); };
+    ws.onopen   = ()=>{ addLog('signal','ws open'); clearInterval(pingTimer); pingTimer=setInterval(()=>{ if(ws&&ws.readyState===1) wsSend('ping',{t:Date.now()}); },20000); };
     ws.onerror  = (e)=>{ addLog('error','ws error'); };
-    ws.onclose  = (e)=>{ addLog('signal',`ws close code=${e.code}`); setStatus('WS закрыт','warn'); };
+    ws.onclose  = (e)=>{ addLog('signal',`ws close code=${e.code}`); clearInterval(pingTimer); setStatus('WS закрыт','warn'); };
     ws.onmessage= (ev)=>{
       let msg; try{ msg = JSON.parse(ev.data); }catch{ addLog('error','ws bad json'); return; }
       addLog('signal','recv '+msg.type);
       if(msg.type==='hello'){
-        memberId = msg.memberId; setStatus(`WS ok. Комната ${roomId}`,'ok');
+        memberId = msg.memberId; setStatus(`WS ok. Комната ${roomId}`,'ok'); resolve(msg);
       } else if(msg.type==='member.joined'){
         noteEl.textContent = 'В комнату вошёл участник';
         // Если мы Caller и уже подготовили микрофон/PC — отправим оффер сразу (есть user‑gesture)
@@ -243,6 +240,8 @@ function connectWS(_role, rid){
         if(c && c.candidate){ pc.addIceCandidate(new RTCIceCandidate(c)).catch(e=>addLog('error','addIce: '+e.message)); }
       } else if(msg.type==='error'){
         setStatus('Ошибка от сервера','err'); addLog('error', msg.code||'unknown');
+      } else if(msg.type==='pong' || msg.type==='ping'){
+        // no-op, для живости соединения
       }
     };
   });
@@ -267,9 +266,7 @@ const iceServers=[ { urls:'stun:stun.l.google.com:19302' }, { urls:'stun:global.
 function createPC(){
   pc = new RTCPeerConnection({ iceServers });
   pc.ontrack = (ev)=>{ audioEl.srcObject = ev.streams[0]; addLog('webrtc','remote track'); };
-  pc.onicecandidate = (ev)=>{
-    if(ev.candidate){ wsSend('ice', ev.candidate.toJSON()); }
-  };
+  pc.onicecandidate = (ev)=>{ if(ev.candidate){ wsSend('ice', ev.candidate.toJSON()); } };
   pc.onconnectionstatechange = ()=>{
     addLog('webrtc','state='+pc.connectionState);
     if(pc.connectionState==='connected'){ setStatus('соединено','ok'); }
@@ -291,7 +288,6 @@ async function startCaller(){
     localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
     readyToCall = true;
     addLog('webrtc','pc ready, waiting peer to join');
-    // оффер ушлёт sendOfferIfPossible() при member.joined или при повторном клике
     setStatus('Комната готова. Ждём собеседника…','ok');
   }catch(e){ setStatus('ошибка старта','err'); addLog('error', e.message||e); alert('Start error: '+(e.message||e)); }
 }
@@ -301,7 +297,6 @@ async function sendOfferIfPossible(){
     if(offerSent) return;
     if(!(ws && ws.readyState===1)) return;
     if(!(pc && localStream)) return;
-    // создаём и отправляем оффер
     const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
     await pc.setLocalDescription(offer);
     addLog('webrtc','offer created');
@@ -309,29 +304,6 @@ async function sendOfferIfPossible(){
     offerSent = true;
     setStatus('отправлен оффер — ждём ответ','ok');
   }catch(e){ addLog('error','sendOffer: '+(e.message||e)); setStatus('ошибка отправки оффера','err'); }
-}
-    setStatus('подготовка…','warn');
-    localStream = await getMic();
-    createPC();
-    localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-    const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
-    await pc.setLocalDescription(offer);
-    addLog('webrtc','offer created');
-    wsSend('offer', pc.localDescription);
-    offerSent = true;
-    setStatus('отправлен оффер — ждём ответ','ok');
-  }catch(e){ setStatus('ошибка старта','err'); addLog('error', e.message||e); alert('Start error: '+(e.message||e)); }
-}
-    setStatus('подготовка…','warn');
-    localStream = await getMic();
-    createPC();
-    localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-    const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
-    await pc.setLocalDescription(offer);
-    addLog('webrtc','offer created');
-    wsSend('offer', pc.localDescription);
-    setStatus('отправлен оффер — ждём ответ','ok');
-  }catch(e){ setStatus('ошибка старта','err'); addLog('error', e.message||e); alert('Start error: '+(e.message||e)); }
 }
 
 async function acceptIncoming(){
@@ -372,7 +344,6 @@ btnCall.onclick = async ()=>{
     const { roomId: rid } = await apiCreateRoom();
     await connectWS('caller', rid);
     shareRoomLink(rid);
-    // Подготовим медиа/PC сразу (есть жест пользователя) — оффер уйдёт, когда peer войдёт
     await startCaller();
     setStatus('Комната готова. Поделитесь ссылкой или ждите входа собеседника','ok');
   }catch(e){ setStatus('ошибка создания комнаты','err'); addLog('error', e.message||e); }
@@ -411,8 +382,7 @@ btnCopyDiag.onclick=async()=>{
     'RTCPeerConnection: '+(typeof RTCPeerConnection),
     'server: '+SERVER_URL,
     'room: '+(roomId||parseRoomFromUrl()||'-')
-  ].join('
-');
+  ].join('\\n');
   try{ await navigator.clipboard.writeText(report); }
   catch{ alert(report); }
 };
