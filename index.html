@@ -321,8 +321,7 @@ btnCopyDiag.onclick=async()=>{
     'RTCPeerConnection: '+(typeof RTCPeerConnection),
     'server: '+SERVER_URL,
     'room: '+(roomId||parseRoomFromUrl()||'-')
-  ].join('
-');
+  ].join('\\n');
   try{ await navigator.clipboard.writeText(report); addLog('info','diag copied'); }
   catch{ addLog('error','diag copy failed'); alert(report); }
 };
