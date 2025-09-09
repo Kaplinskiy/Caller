@@ -181,9 +181,14 @@ btnStartCall.onclick = async () => {
     btnAcceptAnswer.disabled = false;
     btnStopCall.disabled = false;
     setStatus('call key ready — send to callee', 'ok');
-  } catch(e){
-    console.error(e); setStatus('error starting call', 'err');
-  }
+ } catch (e) {
+  console.error(e);
+  const msg = (e && (e.name || e.message)) ? `${e.name || ''}: ${e.message || ''}` : 'unknown error';
+  setStatus('error starting call', 'err');
+  noteEl.textContent = 'Start error → ' + msg +
+    ' | Tip: HTTPS, разрешение микрофона в системе/браузере/сайте, и правильный выбранный девайс.';
+  alert('Start error: ' + msg + '\n\nПроверь: HTTPS, разрешение микрофона у сайта/браузера/системы, выбранное устройство.');
+}
 };
 
 btnCopyOffer.onclick = async () => {
