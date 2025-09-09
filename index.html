@@ -3,251 +3,229 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Простой P2P-звонок — обмен через «Поделиться»</title>
+  <title>Простой P2P‑звонок — отладочная версия (Шаг 1)</title>
   <style>
-    :root { --bg:#0b0f14; --fg:#e8f0fe; --muted:#8aa0b4; --card:#111826; --accent:#22c55e; --accent2:#3b82f6; }
-    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,'Noto Sans',sans-serif;background:var(--bg);color:var(--fg)}
-    .wrap{max-width:860px;margin:0 auto;padding:24px}
+    :root{--bg:#0b0f14;--fg:#e8f0fe;--muted:#8aa0b4;--card:#111826;--accent:#22c55e;--accent2:#3b82f6;--err:#ef4444;--warn:#f59e0b}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,'Noto Sans',sans-serif}
+    .wrap{max-width:960px;margin:0 auto;padding:20px}
     h1{font-size:22px;margin:6px 0 16px}
     .card{background:var(--card);border:1px solid #1e293b;border-radius:16px;padding:16px;box-shadow:0 6px 24px rgba(0,0,0,.35);margin-bottom:16px}
     .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .row>*{flex:1 1 220px}
-    button{appearance:none;border:0;background:var(--accent2);color:white;padding:14px 16px;border-radius:14px;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(59,130,246,.35)}
-    .primary{background:var(--accent)}
+    button{appearance:none;border:0;background:var(--accent2);color:#fff;padding:14px 16px;border-radius:14px;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(59,130,246,.35)}
+    button.primary{background:var(--accent)}
     button:disabled{opacity:.55;cursor:not-allowed}
     .muted{color:var(--muted);font-size:13px}
     .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#152030;border:1px solid #22324a;font-size:12px;color:#b6c7da}
-    textarea{width:100%;min-height:84px;background:#0b1220;color:var(--fg);border:1px solid #253041;border-radius:12px;padding:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    textarea,input[type=text]{width:100%;background:#0b1220;color:var(--fg);border:1px solid #253041;border-radius:12px;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
     audio{width:100%;margin-top:8px}
     .hidden{display:none}
-    .ok{color:#22c55e}.warn{color:#f59e0b}.err{color:#ef4444}
+    .ok{color:#22c55e}.warn{color:var(--warn)}.err{color:var(--err)}
     .big{font-size:18px}
     .center{text-align:center}
+    .banner{padding:10px 12px;border-radius:12px;border:1px solid #334155;background:#0f172a;margin-bottom:12px}
+    .banner.err{border-color:#7f1d1d;background:#1b0b0b}
+    .banner.warn{border-color:#78350f;background:#221306}
+    .kvs{display:grid;grid-template-columns:180px 1fr;gap:6px 10px}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    #logList{max-height:220px;overflow:auto;background:#0b1220;border:1px solid #253041;border-radius:12px;padding:8px}
+    #logList .it{font-size:12px;border-bottom:1px dashed #263445;padding:4px 0}
+    .sep{height:1px;background:#22324a;margin:10px 0}
   </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>🔊 P2P-звонок (WebRTC) — просто</h1>
-  <p class="muted">Обмен параметрами — через нативное меню «Поделиться» или копированием ссылки. Всё шифруется (DTLS-SRTP). Без QR.</p>
+  <h1>🔊 P2P‑звонок (WebRTC) — Шаг 1: каркас + диагностика</h1>
 
+  <!-- Баннер о среде исполнения / in-app браузерах -->
+  <div id="envBanner" class="banner warn hidden"></div>
+
+  <!-- Статус и аудио -->
   <div class="card">
     <div class="row">
-      <div><span class="pill">Статус: <span id="status">idle</span></span></div>
-      <div class="muted" id="note">Разрешите доступ к микрофону при первом запросе.</div>
+      <div><span class="pill">Статус: <span id="status">init</span></span></div>
+      <div class="muted" id="note">Проверяем окружение…</div>
     </div>
     <audio id="remoteAudio" controls autoplay playsinline></audio>
   </div>
 
-  <div class="card center" id="ctaBlock">
+  <!-- Основные кнопки (пока без логики звонка) -->
+  <div id="ctaBlock" class="card center">
     <div class="row">
       <button id="btnCall" class="primary big">📞 Начать звонок</button>
       <button id="btnAnswer" class="big">✅ Ответить на звонок</button>
     </div>
-    <div class="muted">Caller жмёт «Начать звонок» и отправляет ссылку. Callee открывает её → страница генерирует ответ и предложит отправить обратную ссылку.</div>
+    <div class="muted">Шаг 1 — только UI и отладка. Звонок подключим на шаге 2.</div>
   </div>
 
-  <div id="shareBlock" class="card hidden">
-    <h2>Поделиться</h2>
+  <!-- Блок «Поделиться» (подготовка к WA) -->
+  <div id="shareBlock" class="card">
+    <h3>Поделиться приглашением</h3>
     <div class="row">
-      <button id="btnNativeShare" class="primary">📤 Поделиться ссылкой</button>
+      <button id="btnNativeShare" class="primary">📤 Системное «Поделиться»</button>
+      <button id="btnShareWA">🟢 Отправить в WhatsApp</button>
       <button id="btnCopy">📋 Копировать ссылку</button>
     </div>
-    <label class="muted">Ссылка</label>
-    <textarea id="shareLink" readonly></textarea>
+    <label class="muted">Ссылка приглашения</label>
+    <input id="shareLink" type="text" readonly value="(будет сгенерировано на шаге 2)" />
+    <div class="muted" id="shareHint">Подсказка появится здесь…</div>
   </div>
 
+  <!-- Баннер ответа (будет использован позже) -->
   <div id="answerBanner" class="card hidden">
     <div class="row">
-      <div class="muted">Ответ получен. Нажмите, чтобы начать звонок и применить ответ автоматически.</div>
+      <div class="muted">Ответ найден. Нажмите, чтобы начать звонок и применить ответ автоматически.</div>
       <button id="btnStartAndApply" class="primary big">▶️ Начать и применить ответ</button>
     </div>
   </div>
 
-  <div id="diag" class="card">
+  <!-- Диагностика -->
+  <div class="card">
     <h3>Диагностика</h3>
-    <div class="muted" id="diagText">готово</div>
+    <div class="kvs">
+      <div class="muted">Протокол</div><div id="dbgProto" class="mono">—</div>
+      <div class="muted">Secure context</div><div id="dbgSecure" class="mono">—</div>
+      <div class="muted">getUserMedia</div><div id="dbgGUM" class="mono">—</div>
+      <div class="muted">RTCPeerConnection</div><div id="dbgPC" class="mono">—</div>
+      <div class="muted">User‑Agent</div><div id="dbgUA" class="mono">—</div>
+      <div class="muted">In‑App браузер</div><div id="dbgInApp" class="mono">—</div>
+    </div>
+    <div class="sep"></div>
+    <div class="row">
+      <button id="btnCopyDiag">🧰 Скопировать отчёт</button>
+      <div class="muted">Скопируйте и пришлите нам при отладке.</div>
+    </div>
+    <div id="logList" class="mono" aria-live="polite"></div>
   </div>
 </div>
 
 <script>
-// ——— Временная диагностика неожиданных ошибок ———
-window.addEventListener('unhandledrejection', e => {
-  alert('UnhandledRejection: ' + (e.reason?.message || e.reason || 'unknown'));
+// ========= Глобальные ловцы ошибок =========
+window.addEventListener('unhandledrejection', e=>{
+  console.error('UnhandledRejection', e.reason);
+  alert('UnhandledRejection: '+(e.reason?.message||e.reason||'unknown'));
+  addLog('error','unhandledrejection: '+(e.reason?.message||e.reason));
 });
-window.onerror = (msg, src, line, col, err) => {
-  alert('Error: ' + (err?.message || msg));
+window.onerror=(msg,src,line,col,err)=>{
+  console.error('WindowError', msg, src, line, col, err);
+  alert('Error: ' + (err?.message||msg));
+  addLog('error','window.onerror: '+(err?.message||msg));
 };
 
-// ——— DOM ———
-const statusEl=document.getElementById('status');
-const noteEl=document.getElementById('note');
-const audioEl=document.getElementById('remoteAudio');
-const diagEl=document.getElementById('diagText');
-const ctaBlock=document.getElementById('ctaBlock');
-const btnCall=document.getElementById('btnCall');
-const btnAnswer=document.getElementById('btnAnswer');
-const shareBlk=document.getElementById('shareBlock');
-const shareLinkEl=document.getElementById('shareLink');
-const btnNativeShare=document.getElementById('btnNativeShare');
-const btnCopy=document.getElementById('btnCopy');
-const answerBanner=document.getElementById('answerBanner');
-const btnStartAndApply=document.getElementById('btnStartAndApply');
+// ========= DOM =========
+const statusEl = document.getElementById('status');
+const noteEl   = document.getElementById('note');
+const envBanner= document.getElementById('envBanner');
+const audioEl  = document.getElementById('remoteAudio');
+const ctaBlock = document.getElementById('ctaBlock');
+const btnCall  = document.getElementById('btnCall');
+const btnAnswer= document.getElementById('btnAnswer');
+const shareBlk = document.getElementById('shareBlock');
+const shareLinkEl = document.getElementById('shareLink');
+const btnNativeShare = document.getElementById('btnNativeShare');
+const btnShareWA = document.getElementById('btnShareWA');
+const btnCopy   = document.getElementById('btnCopy');
+const shareHint = document.getElementById('shareHint');
+const answerBanner = document.getElementById('answerBanner');
+const btnStartAndApply = document.getElementById('btnStartAndApply');
 
-// ——— helpers ———
-function setStatus(s,cls=''){statusEl.textContent=s;statusEl.className=cls;}
-function log(m){diagEl.textContent=String(m);}
+const dbgProto = document.getElementById('dbgProto');
+const dbgSecure= document.getElementById('dbgSecure');
+const dbgGUM   = document.getElementById('dbgGUM');
+const dbgPC    = document.getElementById('dbgPC');
+const dbgUA    = document.getElementById('dbgUA');
+const dbgInApp = document.getElementById('dbgInApp');
+const logList  = document.getElementById('logList');
+const btnCopyDiag = document.getElementById('btnCopyDiag');
 
-let pc=null, localStream=null, role=null;
-let pendingAnswer=null; // хранит answer, если открыли в отдельной вкладке
-const iceServers=[
-  { urls:'stun:stun.l.google.com:19302' },
-  { urls:'stun:global.stun.twilio.com:3478' }
-];
-
-function attachRemoteAudio(pc){
-  pc.addEventListener('track', ev => { audioEl.srcObject = ev.streams[0]; });
-}
-async function getMic(){
-  if(!navigator.mediaDevices?.getUserMedia) throw new Error('getUserMedia недоступен (нужен HTTPS)');
-  return navigator.mediaDevices.getUserMedia({
-    audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true },
-    video:false
-  });
-}
-function makeShareLink(obj){
-  const base=location.origin+location.pathname;
-  return `${base}#${obj.type==='offer'?'o':'a'}=${encodeURIComponent(JSON.stringify(obj))}`;
-}
-function parseHash(){
-  const h=location.hash.replace(/^#/,'');
-  if(!h) return null;
-  const m=h.match(/^([oa])=(.+)$/);
-  if(!m) return null;
-  try{
-    const obj=JSON.parse(decodeURIComponent(m[2]));
-    if(m[1]==='o' && obj.type==='offer')  return {kind:'offer', obj};
-    if(m[1]==='a' && obj.type==='answer') return {kind:'answer',obj};
-  }catch{}
-  return null;
-}
-function waitIce(pc){
-  return new Promise(res=>{
-    if(pc.iceGatheringState==='complete') return res();
-    const done=()=>{ if(pc.iceGatheringState==='complete'){ pc.removeEventListener('icegatheringstatechange',done); res(); } };
-    pc.addEventListener('icegatheringstatechange',done);
-    setTimeout(()=>{ pc.removeEventListener('icegatheringstatechange',done); res(); }, 2500);
-  });
+function setStatus(s, cls=''){ statusEl.textContent=s; statusEl.className=cls; }
+function addLog(level, msg){
+  const el = document.createElement('div'); el.className='it';
+  const now = new Date().toLocaleTimeString();
+  el.textContent = `[${now}] ${level.toUpperCase()}: ${msg}`;
+  logList.prepend(el);
 }
 
-// ——— main flows ———
-async function startCaller(){
-  try{
-    role='caller';
-    setStatus('подготовка…','warn'); log('Caller: микрофон');
-    localStream = await getMic();
-    pc = new RTCPeerConnection({ iceServers });
-    localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-    attachRemoteAudio(pc);
+// ========= Детект in‑app браузеров =========
+function detectInApp(){
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  const isWhatsApp = /WhatsApp/i.test(ua) || /wv\)/i.test(ua) && /WhatsApp/i.test(navigator.appVersion||'');
+  const isFB = /FBAN|FBAV|FB_IAB|FBAN\//i.test(ua);
+  const isIG = /Instagram/i.test(ua);
+  const isTG = /Telegram/i.test(ua);
+  const inApp = (isWhatsApp||isFB||isIG||isTG);
+  return {ua, isIOS, isAndroid, inApp, isWhatsApp, isFB, isIG, isTG};
+}
 
-    const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
-    await pc.setLocalDescription(offer);
-    await waitIce(pc);
+function renderEnv(){
+  const secure = window.isSecureContext;
+  const proto  = location.protocol;
+  const hasGUM = !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+  const hasPC  = typeof RTCPeerConnection === 'function';
+  const d = detectInApp();
 
-    const url = makeShareLink(pc.localDescription);
-    showShare(url);
-    setStatus('отправьте ссылку собеседнику','ok');
+  dbgProto.textContent = proto;
+  dbgSecure.textContent= String(secure);
+  dbgGUM.textContent   = String(hasGUM);
+  dbgPC.textContent    = String(hasPC);
+  dbgUA.textContent    = d.ua;
+  dbgInApp.textContent = d.inApp ? `in-app (${d.isWhatsApp? 'WhatsApp ':''}${d.isIG? 'Instagram ':''}${d.isFB? 'FB ':''}${d.isTG? 'Telegram ':''})` : 'нет';
 
-    tryAutoApplyAnswer();
-  } catch(e){
-    console.error(e);
-    setStatus('ошибка старта','err'); log(e.message||e);
-    alert('Start error: ' + (e.message||e));
+  if(!secure || !hasGUM || !hasPC || d.inApp){
+    envBanner.classList.remove('hidden');
+    envBanner.innerHTML = `
+      <b>Внимание:</b>
+      <ul>
+        ${!secure?'<li>Нужен HTTPS. Откройте страницу через https://</li>':''}
+        ${!hasGUM?'<li>Браузер не поддерживает микрофон (getUserMedia)</li>':''}
+        ${!hasPC?'<li>Браузер не поддерживает WebRTC (RTCPeerConnection)</li>':''}
+        ${d.inApp?'<li>Похоже, встроенный браузер приложения. Нажмите «…» → <b>Открыть в браузере</b>.</li>':''}
+      </ul>`;
   }
+
+  addLog('info', `secure=${secure} proto=${proto} gum=${hasGUM} pc=${hasPC} inApp=${d.inApp}`);
 }
 
-async function startCalleeFromHash(offerObj){
-  role='callee'; setStatus('генерируем ответ…','warn'); log('Callee: микрофон');
-  localStream = await getMic();
-  pc = new RTCPeerConnection({ iceServers });
-  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-  attachRemoteAudio(pc);
-
-  await pc.setRemoteDescription(new RTCSessionDescription(offerObj));
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  await waitIce(pc);
-
-  const url = makeShareLink(pc.localDescription);
-  showShare(url);
-  setStatus('отправьте ссылку-ответ Caller’у','ok');
-}
-
-async function applyAnswerFromHash(answerObj){
-  // Если оффера ещё нет (ответ открыли в другой вкладке), сохраняем и просим начать
-  if(!pc || !pc.localDescription || pc.localDescription.type!=='offer'){
-    pendingAnswer = answerObj;
-    if (ctaBlock) ctaBlock.classList.add('hidden'); // спрячем стартовые кнопки
-    answerBanner.classList.remove('hidden');        // покажем баннер
-    setStatus('ответ получен — нажмите «Начать и применить»','warn');
-    return;
-  }
-  await pc.setRemoteDescription(new RTCSessionDescription(answerObj));
-  setStatus('соединено','ok'); log('connected');
-  history.replaceState(null,'',location.pathname+location.search); // очистить #a=
-}
-
-// ——— UI actions ———
-function showShare(url){
-  shareBlk.classList.remove('hidden');
-  shareLinkEl.value = url;
-  (async()=>{ try{ await navigator.clipboard.writeText(url); noteEl.textContent='Ссылка скопирована в буфер'; }catch{ noteEl.textContent='Скопируйте ссылку вручную'; } })();
-  if(navigator.share){
-    btnNativeShare.disabled=false;
-    btnNativeShare.onclick=()=>navigator.share({title:'P2P call', text:'Присоединись к звонку', url}).catch(()=>{});
-  } else {
-    btnNativeShare.disabled=true;
-  }
-  btnCopy.onclick=async()=>{ try{ await navigator.clipboard.writeText(url); noteEl.textContent='Ссылка скопирована'; }catch{ noteEl.textContent='Скопируйте вручную'; } };
-}
-
-function handleHash(){
-  const parsed = parseHash();
-  if(!parsed) return;
-  if(parsed.kind==='offer'){
-    // Callee: авто-ответ без лишних кликов
-    startCalleeFromHash(parsed.obj).catch(e=>{ setStatus('ошибка ответа','err'); log(e.message||e); });
-  } else if(parsed.kind==='answer'){
-    // Caller: применить или сохранить до старта
-    applyAnswerFromHash(parsed.obj).catch(e=>{ setStatus('ошибка применения ответа','err'); log(e.message||e); });
-  }
-}
-
-function tryAutoApplyAnswer(){
-  if(pendingAnswer && pc && pc.localDescription && pc.localDescription.type==='offer'){
-    const ans=pendingAnswer; pendingAnswer=null; answerBanner.classList.add('hidden');
-    applyAnswerFromHash(ans).catch(e=>{ setStatus('ошибка','err'); log(e.message||e); });
-  }
-}
-
-// ——— event wiring ———
-btnCall.onclick = () => startCaller().catch(e=>{ setStatus('ошибка','err'); log(e.message||e); });
-btnAnswer.onclick = () => {
-  const parsed = parseHash();
-  if(!parsed || parsed.kind!=='offer'){ alert('Откройте ссылку от Caller (offer)'); return; }
-  startCalleeFromHash(parsed.obj).catch(e=>{ setStatus('ошибка','err'); log(e.message||e); });
+// ========= Кнопки (пока только заглушки) =========
+btnCall.onclick = ()=>{ setStatus('Нажато: Начать звонок','warn'); addLog('action','btnCall clicked'); noteEl.textContent='Шаг 2 подключит реальный звонок.'; };
+btnAnswer.onclick=()=>{ setStatus('Нажато: Ответить на звонок','warn'); addLog('action','btnAnswer clicked'); noteEl.textContent='Шаг 2 подключит реальный звонок.'; };
+btnNativeShare.onclick=()=>{
+  addLog('action','native share pressed');
+  const txt = shareLinkEl.value || '';
+  if(navigator.share){ navigator.share({title:'Приглашение на звонок', text:`Вам звонят: ${txt}`, url: txt}).catch(()=>{}); }
+  else { noteEl.textContent='Native Share недоступен'; addLog('warn','navigator.share unavailable'); }
 };
-btnStartAndApply.onclick = async () => {
-  try {
-    await startCaller(); // создаём локальный offer
-    if (pendingAnswer) await applyAnswerFromHash(pendingAnswer); // применяем сохранённый answer
-  } catch(e){
-    setStatus('ошибка','err'); log(e.message||e);
-  }
+btnShareWA.onclick=()=>{
+  const txt = encodeURIComponent('Вам звонят: '+(shareLinkEl.value||''));
+  const url = `https://wa.me/?text=${txt}`;
+  addLog('action','open wa.me');
+  window.open(url, '_blank');
+};
+btnCopy.onclick=async()=>{
+  try{ await navigator.clipboard.writeText(shareLinkEl.value||''); noteEl.textContent='Ссылка скопирована'; addLog('info','link copied'); }
+  catch{ noteEl.textContent='Скопируйте вручную'; addLog('error','clipboard failed'); }
+};
+btnCopyDiag.onclick=async()=>{
+  const report = [
+    '=== DIAG REPORT ===',
+    'url: '+location.href,
+    'secure: '+window.isSecureContext,
+    'protocol: '+location.protocol,
+    'ua: '+navigator.userAgent,
+    'getUserMedia: '+!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia),
+    'RTCPeerConnection: '+(typeof RTCPeerConnection),
+  ].join('\n');
+  try{ await navigator.clipboard.writeText(report); addLog('info','diag copied'); }
+  catch{ addLog('error','diag copy failed'); alert(report); }
 };
 
-window.addEventListener('hashchange', handleHash);
-// автообработка при загрузке страницы
-handleHash();
+// ========= Инициализация =========
+setStatus('init');
+renderEnv();
+addLog('info','Шаг 1 каркас загружен');
+
 </script>
 </body>
 </html>
