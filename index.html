@@ -131,7 +131,6 @@ const btnCopy   = document.getElementById('btnCopy');
 const shareHint = document.getElementById('shareHint');
 const answerBanner = document.getElementById('answerBanner');
 const btnStartAndApply = document.getElementById('btnStartAndApply');
-const SERVER_URL = 'https://webrtc-signal-4t7n.onrender.com';
 
 const dbgProto = document.getElementById('dbgProto');
 const dbgSecure= document.getElementById('dbgSecure');
@@ -319,7 +318,7 @@ btnCopyDiag.onclick=async()=>{
     'ua: '+navigator.userAgent,
     'getUserMedia: '+!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia),
     'RTCPeerConnection: '+(typeof RTCPeerConnection),
-    'server: '+'https://webrtc-signal-4t7n.onrender.com',
+    'server: '+SERVER_URL,
     'room: '+(roomId||parseRoomFromUrl()||'-')
   ].join('\n');
   try{ await navigator.clipboard.writeText(report); addLog('info','diag copied'); }
