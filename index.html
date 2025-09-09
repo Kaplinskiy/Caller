@@ -194,7 +194,7 @@ function handleHash(){
     applyAnswerFromHash(parsed.obj).catch(e=>{ setStatus('ошибка применения ответа','err'); log(e.message||e); });
   }
 }
-}
+
 
 function tryAutoApplyAnswer(){
   if(pendingAnswer && pc && pc.localDescription && pc.localDescription.type==='offer'){
