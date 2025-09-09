@@ -131,6 +131,7 @@ const btnCopy   = document.getElementById('btnCopy');
 const shareHint = document.getElementById('shareHint');
 const answerBanner = document.getElementById('answerBanner');
 const btnStartAndApply = document.getElementById('btnStartAndApply');
+const SERVER_URL = 'https://webrtc-signal-4t7n.onrender.com';
 
 const dbgProto = document.getElementById('dbgProto');
 const dbgSecure= document.getElementById('dbgSecure');
@@ -193,7 +194,7 @@ function renderEnv(){
 
 // ========= СИГНАЛИНГ: Render-сервер =========
 // !! ВАЖНО: замените на ваш URL Render (пример): https://your-service.onrender.com
-const SERVER_URL = 'https://webrtc-signal-4t7n.onrender.com'; // ваш Render-сервер
+ // ваш Render-сервер
 let ws = null;         // текущее WS-подключение
 let roomId = null;     // текущая комната
 let memberId = null;   // наш id на сервере
