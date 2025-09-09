@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Простой P2P‑звонок — отладочная версия (Шаг 3)</title>
+  <title>Простой P2P‑звонок — отладочная версия (Шаг 4)</title>
   <style>
     :root{--bg:#0b0f14;--fg:#e8f0fe;--muted:#8aa0b4;--card:#111826;--accent:#22c55e;--accent2:#3b82f6;--err:#ef4444;--warn:#f59e0b}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,'Noto Sans',sans-serif}
@@ -35,7 +35,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🔊 P2P‑звонок (WebRTC) — Шаг 3: подключаем сигналинг‑сервер (WS)</h1>
+  <h1>🔊 P2P‑звонок (WebRTC) — Шаг 4: реальный обмен offer/answer/ICE через сервер</h1>
 
   <!-- Баннер о среде исполнения / in-app браузерах -->
   <div id="envBanner" class="banner warn hidden"></div>
@@ -59,6 +59,16 @@
   </div>
 
   <!-- Блок «Поделиться» (подготовка к WA) -->
+  <!-- Входящий звонок для Callee -->
+  <div id="incoming" class="card hidden">
+    <h3>Вам звонят</h3>
+    <div class="row">
+      <button id="btnAccept" class="primary big">✅ Принять</button>
+      <button id="btnDecline" class="big">✖️ Отклонить</button>
+    </div>
+    <div class="muted">Нажмите «Принять», чтобы подключить микрофон и начать разговор.</div>
+  </div>
+
   <div id="shareBlock" class="card">
     <h3>Поделиться приглашением</h3>
     <div class="row">
@@ -71,10 +81,13 @@
     <div class="muted" id="shareHint">После «Позвонить» появится ссылка вида ?room=ABCD</div>
   </div>
 
-  <!-- Баннер ответа (пока не используем, оставим) -->
+  <!-- Баннер ответа (исторический, оставляем скрытым) -->
   <div id="answerBanner" class="card hidden">
     <div class="row">
       <div class="muted">Ответ найден. Нажмите, чтобы начать звонок и применить ответ автоматически.</div>
+      <button id="btnStartAndApply" class="primary big">▶️ Начать и применить ответ</button>
+    </div>
+  </div>
       <button id="btnStartAndApply" class="primary big">▶️ Начать и применить ответ</button>
     </div>
   </div>
@@ -107,12 +120,10 @@
 window.addEventListener('unhandledrejection', e=>{
   console.error('UnhandledRejection', e.reason);
   alert('UnhandledRejection: '+(e.reason?.message||e.reason||'unknown'));
-  addLog('error','unhandledrejection: '+(e.reason?.message||e.reason));
 });
 window.onerror=(msg,src,line,col,err)=>{
   console.error('WindowError', msg, src, line, col, err);
   alert('Error: ' + (err?.message||msg));
-  addLog('error','window.onerror: '+(err?.message||msg));
 };
 
 // ========= DOM =========
@@ -131,7 +142,9 @@ const btnCopy   = document.getElementById('btnCopy');
 const shareHint = document.getElementById('shareHint');
 const answerBanner = document.getElementById('answerBanner');
 const btnStartAndApply = document.getElementById('btnStartAndApply');
-const SERVER_URL = 'https://webrtc-signal-4t7n.onrender.com';
+const incoming = document.getElementById('incoming');
+const btnAccept = document.getElementById('btnAccept');
+const btnDecline = document.getElementById('btnDecline');
 
 const dbgProto = document.getElementById('dbgProto');
 const dbgSecure= document.getElementById('dbgSecure');
@@ -150,7 +163,7 @@ function addLog(level, msg){
   logList.prepend(el);
 }
 
-// ========= Детект in‑app браузеров =========
+// ========= Детект in‑app =========
 function detectInApp(){
   const ua = navigator.userAgent || '';
   const isIOS = /iPhone|iPad|iPod/i.test(ua);
@@ -159,45 +172,32 @@ function detectInApp(){
   const isFB = /FBAN|FBAV|FB_IAB|FBAN\//i.test(ua);
   const isIG = /Instagram/i.test(ua);
   const isTG = /Telegram/i.test(ua);
-  const inApp = (isWhatsApp||isFB||isIG||isTG);
-  return {ua, isIOS, isAndroid, inApp, isWhatsApp, isFB, isIG, isTG};
+  return {ua, inApp:(isWhatsApp||isFB||isIG||isTG)};
 }
-
 function renderEnv(){
   const secure = window.isSecureContext;
   const proto  = location.protocol;
   const hasGUM = !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
   const hasPC  = typeof RTCPeerConnection === 'function';
   const d = detectInApp();
-
   dbgProto.textContent = proto;
   dbgSecure.textContent= String(secure);
   dbgGUM.textContent   = String(hasGUM);
   dbgPC.textContent    = String(hasPC);
-  dbgUA.textContent    = d.ua;
-  dbgInApp.textContent = d.inApp ? `in-app (${d.isWhatsApp? 'WhatsApp ':''}${d.isIG? 'Instagram ':''}${d.isFB? 'FB ':''}${d.isTG? 'Telegram ':''})` : 'нет';
-
+  dbgUA.textContent    = navigator.userAgent;
+  dbgInApp.textContent = d.inApp ? 'in-app' : 'нет';
   if(!secure || !hasGUM || !hasPC || d.inApp){
     envBanner.classList.remove('hidden');
-    envBanner.innerHTML = `
-      <b>Внимание:</b>
-      <ul>
-        ${!secure?'<li>Нужен HTTPS. Откройте страницу через https://</li>':''}
-        ${!hasGUM?'<li>Браузер не поддерживает микрофон (getUserMedia)</li>':''}
-        ${!hasPC?'<li>Браузер не поддерживает WebRTC (RTCPeerConnection)</li>':''}
-        ${d.inApp?'<li>Похоже, встроенный браузер приложения. Нажмите «…» → <b>Открыть в браузере</b>.</li>':''}
-      </ul>`;
+    envBanner.innerHTML = `<b>Внимание:</b><ul>${!secure?'<li>Нужен HTTPS</li>':''}${!hasGUM?'<li>getUserMedia недоступен</li>':''}${!hasPC?'<li>WebRTC недоступен</li>':''}${d.inApp?'<li>Встроенный браузер — нажмите «Открыть в браузере»</li>':''}</ul>`;
   }
-
-  addLog('info', `secure=${secure} proto=${proto} gum=${hasGUM} pc=${hasPC} inApp=${d.inApp}`);
 }
 
 // ========= СИГНАЛИНГ: Render-сервер =========
-// !! ВАЖНО: замените на ваш URL Render (пример): https://your-service.onrender.com
- // ваш Render-сервер
+const SERVER_URL = 'https://webrtc-signal-4t7n.onrender.com'; // ваш Render-сервер
 let ws = null;         // текущее WS-подключение
 let roomId = null;     // текущая комната
 let memberId = null;   // наш id на сервере
+let role = null;       // 'caller' | 'callee'
 
 async function apiCreateRoom(customId){
   const res = await fetch(`${SERVER_URL}/rooms`, {
@@ -208,9 +208,10 @@ async function apiCreateRoom(customId){
   return res.json();
 }
 
-function connectWS(role, rid){
+function connectWS(_role, rid){
   return new Promise((resolve,reject)=>{
-    const url = `${SERVER_URL.replace('http','ws')}/ws?roomId=${encodeURIComponent(rid)}&role=${encodeURIComponent(role)}`;
+    role = _role; roomId = rid;
+    const url = `${SERVER_URL.replace('http','ws')}/ws?roomId=${encodeURIComponent(rid)}&role=${encodeURIComponent(_role)}`;
     addLog('signal', 'connect WS '+url);
     ws = new WebSocket(url);
     ws.onopen   = ()=>{ addLog('signal','ws open'); };
@@ -218,25 +219,35 @@ function connectWS(role, rid){
     ws.onclose  = (e)=>{ addLog('signal',`ws close code=${e.code}`); setStatus('WS закрыт','warn'); };
     ws.onmessage= (ev)=>{
       let msg; try{ msg = JSON.parse(ev.data); }catch{ addLog('error','ws bad json'); return; }
-      // Диагностика всех сообщений
       addLog('signal','recv '+msg.type);
       if(msg.type==='hello'){
-        memberId = msg.memberId; roomId = msg.roomId;
-        setStatus(`WS ok. Комната ${roomId}`,'ok');
-        resolve(msg);
+        memberId = msg.memberId; setStatus(`WS ok. Комната ${roomId}`,'ok'); resolve(msg);
       } else if(msg.type==='member.joined'){
         noteEl.textContent = 'В комнату вошёл участник';
       } else if(msg.type==='member.left'){
         noteEl.textContent = 'Участник покинул комнату';
-      } else if(['offer','answer','ice'].includes(msg.type)){
-        // На этом шаге мы только логируем; подключим WebRTC на следующем шаге
-        addLog('signal', `signal ${msg.type} (демо)`);
+      } else if(msg.type==='offer'){
+        // Получен оффер → это входящий звонок
+        pendingOffer = msg.payload;
+        incoming.classList.remove('hidden');
+        setStatus('Входящий звонок — нажмите Принять','warn');
+      } else if(msg.type==='answer'){
+        if(!pc){ addLog('error','answer without pc'); return; }
+        pc.setRemoteDescription(new RTCSessionDescription(msg.payload)).then(()=>{
+          addLog('webrtc','answer applied');
+        }).catch(e=>{ addLog('error','apply answer: '+e.message); setStatus('ошибка ответа','err'); });
+      } else if(msg.type==='ice'){
+        if(!pc) return; const c = msg.payload;
+        if(c && c.candidate){ pc.addIceCandidate(new RTCIceCandidate(c)).catch(e=>addLog('error','addIce: '+e.message)); }
       } else if(msg.type==='error'){
-        setStatus('Ошибка от сервера','err');
-        addLog('error', msg.code||'unknown');
+        setStatus('Ошибка от сервера','err'); addLog('error', msg.code||'unknown');
       }
     };
   });
+}
+
+function wsSend(type, payload){
+  if(ws && ws.readyState===1){ ws.send(JSON.stringify({ type, roomId, from: memberId, payload })); }
 }
 
 function shareRoomLink(rid){
@@ -244,33 +255,68 @@ function shareRoomLink(rid){
   const link = `${base}?room=${encodeURIComponent(rid)}`;
   shareLinkEl.value = link;
   shareBlk.classList.remove('hidden');
-  shareHint.textContent = 'Отправьте эту ссылку собеседнику (WhatsApp → «Открыть в браузере»).';
+  shareHint.textContent = 'Отправьте ссылку собеседнику (WhatsApp → «Открыть в браузере»).';
 }
 
-// ========= WebRTC ядро (подключим на шаге 4) =========
-let pc=null, localStream=null, role=null; let pendingAnswer=null;
+// ========= WebRTC ядро =========
+let pc=null, localStream=null; let pendingOffer=null;
 const iceServers=[ { urls:'stun:stun.l.google.com:19302' }, { urls:'stun:global.stun.twilio.com:3478' } ];
-function showShare(url){
-  shareBlk.classList.remove('hidden');
-  shareLinkEl.value = url;
-  (async()=>{ try{ await navigator.clipboard.writeText(url); noteEl.textContent='Ссылка скопирована в буфер'; addLog('info','link copied'); }catch{ noteEl.textContent='Скопируйте ссылку вручную'; addLog('warn','clipboard failed'); } })();
-  shareHint.textContent = 'Отправьте ссылку в WhatsApp. Получив ответ — откройте его в этой вкладке.';
+
+function createPC(){
+  pc = new RTCPeerConnection({ iceServers });
+  pc.ontrack = (ev)=>{ audioEl.srcObject = ev.streams[0]; addLog('webrtc','remote track'); };
+  pc.onicecandidate = (ev)=>{
+    if(ev.candidate){ wsSend('ice', ev.candidate.toJSON()); }
+  };
+  pc.onconnectionstatechange = ()=>{
+    addLog('webrtc','state='+pc.connectionState);
+    if(pc.connectionState==='connected'){ setStatus('соединено','ok'); }
+    if(pc.connectionState==='failed'){ setStatus('сбой соединения','err'); }
+  };
 }
 
-// ========= Обработка URL (?room=) =========
-function parseRoomFromUrl(){
-  const u = new URL(location.href);
-  return u.searchParams.get('room');
+async function getMic(){
+  if(!navigator.mediaDevices?.getUserMedia) throw new Error('getUserMedia недоступен (HTTPS)');
+  return navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true }, video:false });
 }
 
+async function startCaller(){
+  try{
+    if(!ws || ws.readyState!==1){ throw new Error('WS не подключён'); }
+    setStatus('подготовка…','warn');
+    localStream = await getMic();
+    createPC();
+    localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+    const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
+    await pc.setLocalDescription(offer);
+    addLog('webrtc','offer created');
+    wsSend('offer', pc.localDescription);
+    setStatus('отправлен оффер — ждём ответ','ok');
+  }catch(e){ setStatus('ошибка старта','err'); addLog('error', e.message||e); alert('Start error: '+(e.message||e)); }
+}
+
+async function acceptIncoming(){
+  try{
+    if(!pendingOffer){ addLog('warn','нет оффера'); return; }
+    setStatus('принимаем…','warn'); incoming.classList.add('hidden');
+    localStream = await getMic();
+    createPC();
+    localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+    await pc.setRemoteDescription(new RTCSessionDescription(pendingOffer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    wsSend('answer', pc.localDescription);
+    setStatus('ответ отправлен','ok');
+  }catch(e){ setStatus('ошибка ответа','err'); addLog('error', e.message||e); alert('Answer error: '+(e.message||e)); }
+}
+
+// ========= URL и инициализация =========
+function parseRoomFromUrl(){ const u = new URL(location.href); return u.searchParams.get('room'); }
 async function initByUrl(){
   const rid = parseRoomFromUrl();
   if(!rid){ addLog('info','нет room в URL — это Caller'); return; }
-  // Это Callee: подключаемся к WS как callee
-  setStatus('Подключаемся к комнате…','warn');
   await connectWS('callee', rid);
-  // Здесь позже добавим «входящий звонок» и ответ через WS
-  noteEl.textContent = 'WS подключён как callee. Ждём оффер…';
+  setStatus('WS подключён, ждём оффер','ok');
 }
 
 // ========= Кнопки =========
@@ -278,37 +324,34 @@ btnCall.onclick = async ()=>{
   try{
     setStatus('Создаём комнату…','warn');
     const { roomId: rid } = await apiCreateRoom();
-    roomId = rid;
     await connectWS('caller', rid);
-    setStatus('Комната создана. Поделитесь ссылкой','ok');
     shareRoomLink(rid);
+    setStatus('Комната создана. Поделитесь ссылкой','ok');
+    // После того как второй участник зайдёт — можно жать «Начать звонок» повторно, чтобы отправить оффер
   }catch(e){ setStatus('ошибка создания комнаты','err'); addLog('error', e.message||e); }
 };
 
 btnAnswer.onclick = async ()=>{
   const rid = parseRoomFromUrl();
   if(!rid){ alert('Откройте приглашение с ?room=…'); addLog('warn','btnAnswer без room'); return; }
-  try{
-    await connectWS('callee', rid);
-    setStatus('WS ok для callee','ok');
-  }catch(e){ setStatus('ошибка подключения','err'); addLog('error', e.message||e); }
+  await connectWS('callee', rid);
 };
+
+btnAccept.onclick = ()=> acceptIncoming();
+btnDecline.onclick = ()=>{ incoming.classList.add('hidden'); setStatus('отклонено','warn'); };
 
 btnNativeShare.onclick=()=>{
   const txt = shareLinkEl.value || '';
-  addLog('action','native share pressed');
   if(navigator.share){ navigator.share({title:'Приглашение на звонок', text:`Вам звонят: ${txt}`, url: txt}).catch(()=>{}); }
-  else { noteEl.textContent='Native Share недоступен'; addLog('warn','navigator.share unavailable'); }
+  else { noteEl.textContent='Native Share недоступен'; }
 };
 btnShareWA.onclick=()=>{
   const txt = encodeURIComponent('Вам звонят: '+(shareLinkEl.value||''));
-  const url = `https://wa.me/?text=${txt}`;
-  addLog('action','open wa.me');
-  window.open(url, '_blank');
+  const url = `https://wa.me/?text=${txt}`; window.open(url, '_blank');
 };
 btnCopy.onclick=async()=>{
-  try{ await navigator.clipboard.writeText(shareLinkEl.value||''); noteEl.textContent='Ссылка скопирована'; addLog('info','link copied'); }
-  catch{ noteEl.textContent='Скопируйте вручную'; addLog('error','clipboard failed'); }
+  try{ await navigator.clipboard.writeText(shareLinkEl.value||''); noteEl.textContent='Ссылка скопирована'; }
+  catch{ noteEl.textContent='Скопируйте вручную'; }
 };
 btnCopyDiag.onclick=async()=>{
   const report = [
@@ -321,15 +364,15 @@ btnCopyDiag.onclick=async()=>{
     'RTCPeerConnection: '+(typeof RTCPeerConnection),
     'server: '+SERVER_URL,
     'room: '+(roomId||parseRoomFromUrl()||'-')
-  ].join('\\n');
-  try{ await navigator.clipboard.writeText(report); addLog('info','diag copied'); }
-  catch{ addLog('error','diag copy failed'); alert(report); }
+  ].join('\n');
+  try{ await navigator.clipboard.writeText(report); }
+  catch{ alert(report); }
 };
 
-// ========= Инициализация =========
+// ========= Старт =========
 setStatus('init');
 renderEnv();
-addLog('info','Шаг 3 загружен');
+addLog('info','Шаг 4 загружен');
 initByUrl();
 </script>
 </body>
