@@ -28,7 +28,7 @@
 <body>
 <div class="wrap">
   <h1>🔊 P2P-звонок (WebRTC) — просто</h1>
-  <p class="muted">Обмен параметрами — через нативное меню «Поделиться» или копированием короткой ссылки. Всё шифруется (DTLS-SRTP).</p>
+  <p class="muted">Обмен параметрами — через нативное меню «Поделиться» или копированием ссылки. Всё шифруется (DTLS‑SRTP). Без QR.</p>
 
   <div class="card">
     <div class="row">
@@ -43,7 +43,7 @@
       <button id="btnCall" class="primary big">📞 Начать звонок</button>
       <button id="btnAnswer" class="big">✅ Ответить на звонок</button>
     </div>
-    <div class="muted">Caller нажимает «Начать звонок» и отправляет ссылку через «Поделиться». Callee открывает её → страница генерирует ответ и предложит отправить обратную ссылку.</div>
+    <div class="muted">Caller жмёт «Начать звонок» и отправляет ссылку. Callee открывает её → страница генерирует ответ и предложит отправить обратную ссылку.</div>
   </div>
 
   <div id="shareBlock" class="card hidden">
@@ -58,7 +58,7 @@
 
   <div id="answerBanner" class="card hidden">
     <div class="row">
-      <div class="muted">Получена answer-ссылка. Нажмите, чтобы применить её к текущему звонку.</div>
+      <div class="muted">Получена answer‑ссылка. Нажмите, чтобы применить её к текущему звонку.</div>
       <button id="btnApplyAnswer" class="primary">🔗 Применить ответ</button>
     </div>
   </div>
@@ -73,6 +73,7 @@
 const statusEl=document.getElementById('status');
 const noteEl=document.getElementById('note');
 const audioEl=document.getElementById('remoteAudio');
+const diagEl=document.getElementById('diagText');
 const btnCall=document.getElementById('btnCall');
 const btnAnswer=document.getElementById('btnAnswer');
 const shareBlk=document.getElementById('shareBlock');
@@ -82,74 +83,98 @@ const btnCopy=document.getElementById('btnCopy');
 const answerBanner=document.getElementById('answerBanner');
 const btnApplyAnswer=document.getElementById('btnApplyAnswer');
 
-let pc=null,localStream=null,role=null;let pendingAnswer=null;
+function setStatus(s,cls=''){statusEl.textContent=s;statusEl.className=cls;}
+function log(m){diagEl.textContent=String(m);} 
 
-function makeShareLink(obj){
-  const base=location.origin+location.pathname;
-  return base+'#'+(obj.type==='offer'?'o':'a')+'='+encodeURIComponent(JSON.stringify(obj));
+let pc=null, localStream=null, role=null; let pendingAnswer=null;
+// ВАЖНО: STUN‑серверы для обхода NAT
+const iceServers=[
+  { urls:'stun:stun.l.google.com:19302' },
+  { urls:'stun:global.stun.twilio.com:3478' }
+];
+
+function attachRemoteAudio(pc){ pc.addEventListener('track', ev=>{ audioEl.srcObject=ev.streams[0]; }); }
+async function getMic(){ return navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true }, video:false }); }
+function makeShareLink(obj){ const base=location.origin+location.pathname; return `${base}#${obj.type==='offer'?'o':'a'}=${encodeURIComponent(JSON.stringify(obj))}`; }
+function parseHash(){ const h=location.hash.replace(/^#/,''); if(!h) return null; const m=h.match(/^([oa])=(.+)$/); if(!m) return null; try{ const obj=JSON.parse(decodeURIComponent(m[2])); if(m[1]==='o'&&obj.type==='offer') return {kind:'offer',obj}; if(m[1]==='a'&&obj.type==='answer') return {kind:'answer',obj}; }catch{} return null; }
+function waitIce(pc){ return new Promise(res=>{ if(pc.iceGatheringState==='complete') return res(); const done=()=>{ if(pc.iceGatheringState==='complete'){ pc.removeEventListener('icegatheringstatechange',done); res(); } }; pc.addEventListener('icegatheringstatechange',done); setTimeout(()=>{ pc.removeEventListener('icegatheringstatechange',done); res(); }, 2500); }); }
+
+async function startCaller(){
+  role='caller'; setStatus('подготовка…','warn');
+  localStream = await getMic();
+  pc = new RTCPeerConnection({ iceServers });
+  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+  attachRemoteAudio(pc);
+  const offer = await pc.createOffer({ offerToReceiveAudio:true, offerToReceiveVideo:false });
+  await pc.setLocalDescription(offer);
+  await waitIce(pc); // ждём ICE, чтобы ссылка была самодостаточной
+  const url = makeShareLink(pc.localDescription);
+  showShare(url);
+  setStatus('отправьте ссылку собеседнику','ok');
+  tryAutoApplyAnswer();
+}
+
+async function startCalleeFromHash(offerObj){
+  role='callee'; setStatus('генерируем ответ…','warn');
+  localStream = await getMic();
+  pc = new RTCPeerConnection({ iceServers });
+  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
+  attachRemoteAudio(pc);
+  await pc.setRemoteDescription(new RTCSessionDescription(offerObj));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  await waitIce(pc); // включаем ICE‑кандидаты в ссылку
+  const url = makeShareLink(pc.localDescription);
+  showShare(url);
+  setStatus('отправьте ссылку‑ответ Caller’у','ok');
+}
+
+async function applyAnswerFromHash(answerObj){
+  if(!pc || !pc.localDescription || pc.localDescription.type!=='offer'){
+    pendingAnswer = answerObj; // сохраним и дождёмся, когда Caller нажмёт «Начать звонок»
+    answerBanner.classList.remove('hidden'); setStatus('ожидается локальный offer…','warn');
+    return;
+  }
+  await pc.setRemoteDescription(new RTCSessionDescription(answerObj));
+  setStatus('соединено','ok'); log('connected');
+  history.replaceState(null,'',location.pathname+location.search); // очистим хэш
 }
 
 function showShare(url){
   shareBlk.classList.remove('hidden');
-  shareLinkEl.value=url;
-  navigator.clipboard.writeText(url).catch(()=>{});
-  if(navigator.share){btnNativeShare.onclick=()=>navigator.share({url});}
-  btnCopy.onclick=()=>navigator.clipboard.writeText(url);
+  shareLinkEl.value = url;
+  (async()=>{ try{ await navigator.clipboard.writeText(url); noteEl.textContent='Ссылка скопирована в буфер'; }catch{ noteEl.textContent='Скопируйте ссылку вручную'; } })();
+  if(navigator.share){ btnNativeShare.disabled=false; btnNativeShare.onclick=()=>navigator.share({title:'P2P call', text:'Присоединись к звонку', url}).catch(()=>{}); } else { btnNativeShare.disabled=true; }
+  btnCopy.onclick=async()=>{ try{ await navigator.clipboard.writeText(url); noteEl.textContent='Ссылка скопирована'; }catch{ noteEl.textContent='Скопируйте вручную'; } };
 }
 
-async function startCaller(){
-  role='caller';
-  localStream=await navigator.mediaDevices.getUserMedia({audio:true});
-  pc=new RTCPeerConnection();
-  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-  pc.ontrack=ev=>{audioEl.srcObject=ev.streams[0];};
-  const offer=await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  const url=makeShareLink(pc.localDescription);
-  showShare(url);
-  if(pendingAnswer) applyAnswerFromHash(pendingAnswer);
-}
-
-async function startCalleeFromHash(offerObj){
-  role='callee';
-  localStream=await navigator.mediaDevices.getUserMedia({audio:true});
-  pc=new RTCPeerConnection();
-  localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
-  pc.ontrack=ev=>{audioEl.srcObject=ev.streams[0];};
-  await pc.setRemoteDescription(new RTCSessionDescription(offerObj));
-  const answer=await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  const url=makeShareLink(pc.localDescription);
-  showShare(url);
-}
-
-async function applyAnswerFromHash(answerObj){
-  if(!pc||!pc.localDescription||pc.localDescription.type!=='offer'){
-    pendingAnswer=answerObj;
-    answerBanner.classList.remove('hidden');
-    return;
+function handleHash(){
+  const parsed = parseHash();
+  if(!parsed) return;
+  if(parsed.kind==='offer'){
+    noteEl.textContent='Обнаружена ссылка вызова. Нажмите «Ответить на звонок», чтобы сгенерировать ответ.';
+  } else if(parsed.kind==='answer'){
+    applyAnswerFromHash(parsed.obj).catch(e=>{ setStatus('ошибка применения ответа','err'); log(e.message||e); });
   }
-  await pc.setRemoteDescription(new RTCSessionDescription(answerObj));
-  statusEl.textContent='соединено';
-  answerBanner.classList.add('hidden');
 }
 
-btnCall.onclick=()=>startCaller();
-btnAnswer.onclick=()=>{
-  const h=location.hash;
-  if(h.startsWith('#o=')){
-    try{const obj=JSON.parse(decodeURIComponent(h.substring(3)));startCalleeFromHash(obj);}catch(e){console.error(e);}
+function tryAutoApplyAnswer(){
+  if(pendingAnswer && pc && pc.localDescription && pc.localDescription.type==='offer'){
+    const ans = pendingAnswer; pendingAnswer=null; answerBanner.classList.add('hidden');
+    applyAnswerFromHash(ans).catch(e=>{ setStatus('ошибка','err'); log(e.message||e); });
   }
+}
+
+btnCall.onclick = () => startCaller().catch(e=>{ setStatus('ошибка','err'); log(e.message||e); });
+btnAnswer.onclick = () => {
+  const parsed = parseHash();
+  if(!parsed || parsed.kind!=='offer'){ alert('Откройте ссылку от Caller (offer)'); return; }
+  startCalleeFromHash(parsed.obj).catch(e=>{ setStatus('ошибка','err'); log(e.message||e); });
 };
-btnApplyAnswer.onclick=()=>{if(pendingAnswer) applyAnswerFromHash(pendingAnswer)};
+btnApplyAnswer.onclick = () => { if(!pendingAnswer) return; tryAutoApplyAnswer(); };
 
-// автообработка при загрузке
-window.addEventListener('load',()=>{
-  const h=location.hash;
-  if(h.startsWith('#a=')){
-    try{const obj=JSON.parse(decodeURIComponent(h.substring(3)));applyAnswerFromHash(obj);}catch(e){console.error(e);}
-  }
-});
+window.addEventListener('hashchange', handleHash);
+handleHash();
 </script>
 </body>
 </html>
