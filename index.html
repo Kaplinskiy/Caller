@@ -262,14 +262,15 @@ function shareRoomLink(rid){
 // ========= WebRTC ядро =========
 let pc=null, localStream=null; let pendingOffer=null; let offerSent=false;
 const iceServers = [
-  // основной канал — TLS поверх TCP (самый «проходимый»)
-  { urls: 'turns:turn.zababba.com:5349?transport=tcp', username: 'demo', credential: 'FaInA2019!' },
-
-  // запасной ALT-TLS, если ты включал 8443 (опционально)
-  // { urls: 'turns:turn.zababba.com:8443?transport=tcp', username: 'demo', credential: 'FaInA2019!' },
-
-  // резерв на случай нестандартных сетей (TCP без TLS). Если хочешь — тоже можно убрать.
-  { urls: 'turn:turn.zababba.com:3478?transport=tcp',  username: 'demo', credential: 'FaInA2019!' }
+  {
+    urls: [
+      "turns:turn.zababba.com:5349?transport=tcp",
+      "turn:turn.zababba.com:3478?transport=udp",
+      "turn:turn.zababba.com:3478?transport=tcp"
+    ],
+    username: "demo",
+    credential: "FaInA2019!"
+  }
 ];
 
 function createPC(){
