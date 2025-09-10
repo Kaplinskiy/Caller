@@ -261,7 +261,19 @@ function shareRoomLink(rid){
 
 // ========= WebRTC ядро =========
 let pc=null, localStream=null; let pendingOffer=null; let offerSent=false;
-const iceServers=[ { urls:'stun:stun.l.google.com:19302' }, { urls:'stun:global.stun.twilio.com:3478' } ];
+const iceServers = [
+  { urls: 'stun:stun.l.google.com:19302' },
+
+  // главный путь через твой TURN (TLS на 443/tcp — самый «проходимый»)
+  { urls: 'turns:turn.zababba.com:443?transport=tcp', username: 'demo', credential: 'FaInA2019!' },
+
+  // запасной TLS-порт
+  { urls: 'turns:turn.zababba.com:5349?transport=tcp', username: 'demo', credential: 'FaInA2019!' },
+
+  // обычный TURN
+  { urls: 'turn:turn.zababba.com:3478?transport=tcp',  username: 'demo', credential: 'FaInA2019!' },
+  { urls: 'turn:turn.zababba.com:3478?transport=udp',  username: 'demo', credential: 'FaInA2019!' }
+];
 
 function createPC(){
   pc = new RTCPeerConnection({ iceServers });
