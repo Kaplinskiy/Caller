@@ -273,7 +273,11 @@ const iceServers = [
 ];
 
 function createPC(){
-  pc = new RTCPeerConnection({ iceServers });
+  pc = new RTCPeerConnection({
+  iceServers,
+  iceTransportPolicy: 'relay'  // КРИТИЧНО: только через TURN
+  // optional: bundlePolicy:'balanced', rtcpMuxPolicy:'require'
+});
   pc.ontrack = (ev)=>{ audioEl.srcObject = ev.streams[0]; addLog('webrtc','remote track'); };
   pc.onicecandidate = (ev)=>{ if(ev.candidate){ wsSend('ice', ev.candidate.toJSON()); } };
   pc.onconnectionstatechange = ()=>{
