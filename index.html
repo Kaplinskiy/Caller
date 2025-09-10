@@ -261,6 +261,9 @@ function shareRoomLink(rid){
 
 // ========= WebRTC ядро =========
 let pc=null, localStream=null; let pendingOffer=null; let offerSent=false;
+// ========= WebRTC ядро =========
+let pc=null, localStream=null; let pendingOffer=null; let offerSent=false;
+
 const iceServers = [
   {
     urls: [
@@ -275,17 +278,17 @@ const iceServers = [
 
 function createPC(){
   pc = new RTCPeerConnection({
-  iceServers,
-  iceTransportPolicy: 'relay'  // КРИТИЧНО: только через TURN
-  // optional: bundlePolicy:'balanced', rtcpMuxPolicy:'require'
-});
-  pc.ontrack = (ev)=>{ audioEl.srcObject = ev.streams[0]; addLog('webrtc','remote track'); };
+    iceServers,
+    iceTransportPolicy: 'relay'  // <— только через TURN
+  });
   pc.onicecandidate = (ev)=>{ if(ev.candidate){ wsSend('ice', ev.candidate.toJSON()); } };
+  pc.oniceconnectionstatechange = ()=>{
+    addLog('webrtc','ice='+pc.iceConnectionState);
+  };
   pc.onconnectionstatechange = ()=>{
     addLog('webrtc','state='+pc.connectionState);
-    if(pc.connectionState==='connected'){ setStatus('соединено','ok'); }
-    if(pc.connectionState==='failed'){ setStatus('сбой соединения','err'); }
   };
+  pc.ontrack = (ev)=>{ audioEl.srcObject = ev.streams[0]; addLog('webrtc','remote track'); };
 }
 
 async function getMic(){
