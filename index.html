@@ -114,6 +114,10 @@
 </div>
 
 <script>
+(() => {
+  if (window.__CALL_APP_LOADED__) return;
+  window.__CALL_APP_LOADED__ = true;
+
 // ========= Глобальные ловцы ошибок =========
 window.addEventListener('unhandledrejection', e=>{
   console.error('UnhandledRejection', e.reason);
@@ -409,6 +413,8 @@ setStatus('init');
 renderEnv();
 addLog('info','Шаг 4 загружен');
 initByUrl();
+})();
+</script>
 </script>
 </body>
 </html>
