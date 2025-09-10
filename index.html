@@ -254,96 +254,175 @@
     }
   }
 
-  function connectWS(_role, rid) {
-    return new Promise((resolve) => {
-      role   = _role;
-      roomId = rid;
+  /**
+ * Подключение к WebSocket-сигналингу и обработка сообщений.
+ * Возвращает Promise, который resolve'ится после получения "hello".
+ *
+ * @param {'caller'|'callee'} _role  Роль участника
+ * @param {string}            rid    ID комнаты
+ */
+function connectWS(_role, rid) {
+  return new Promise((resolve, reject) => {
+    // --- сохраняем контекст комнаты/роли ---
+    role   = _role;
+    roomId = rid;
 
-      const url = `${SERVER_URL.replace('http','ws')}/ws?roomId=${encodeURIComponent(rid)}&role=${encodeURIComponent(_role)}`;
-      addLog('signal', `connect WS ${url}`);
+    // Строим ws:// или wss:// URL на основе SERVER_URL
+    const url = `${SERVER_URL.replace('http', 'ws')}/ws` +
+                `?roomId=${encodeURIComponent(rid)}` +
+                `&role=${encodeURIComponent(_role)}`;
 
-      ws = new WebSocket(url);
+    addLog('signal', `connect WS ${url}`);
 
-      ws.onopen = () => {
-        addLog('signal', 'ws open');
-        clearInterval(pingTimer);
-        pingTimer = setInterval(() => {
-          if (ws && ws.readyState === 1) wsSend('ping', { t: Date.now() });
-        }, 20000);
-      };
+    // --- открываем сокет ---
+    ws = new WebSocket(url);
 
-      ws.onerror = () => addLog('error', 'ws error');
-
-      ws.onclose = (e) => {
-        addLog('signal', `ws close code=${e.code}`);
-        clearInterval(pingTimer);
-        setStatus('WS закрыт', 'warn');
-      };
-
-      ws.onmessage = (ev) => {
-        let msg;
-        try {
-          msg = JSON.parse(ev.data);
-        } catch {
-          addLog('error','ws bad json');
-          return;
+    // Периодические ping'и для поддержания соединения
+    const startKeepAlive = () => {
+      clearInterval(pingTimer);
+      pingTimer = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          wsSend('ping', { t: Date.now() });
         }
-        addLog('signal', 'recv ' + msg.type);
+      }, 20_000);
+    };
 
-        if (msg.type === 'hello') {
+    // ---------- обработчики сокета ----------
+    ws.onopen = () => {
+      addLog('signal', 'ws open');
+      startKeepAlive();
+    };
+
+    ws.onerror = (e) => {
+      addLog('error', 'ws error');
+      // Не отвергаем Promise сразу — дадим шанс onmessage('hello') догнаться,
+      // но если соединение закроется — reject произойдёт в onclose.
+    };
+
+    ws.onclose = (e) => {
+      addLog('signal', `ws close code=${e.code}`);
+      clearInterval(pingTimer);
+      setStatus('WS закрыт', 'warn');
+      // Если закрыли до hello — отклоняем подключение
+      if (!memberId) {
+        reject(new Error('WebSocket closed before hello'));
+      }
+    };
+
+    ws.onmessage = (ev) => {
+      let msg;
+
+      // Безопасное парсирование
+      try {
+        msg = JSON.parse(ev.data);
+      } catch {
+        addLog('error', 'ws bad json');
+        return;
+      }
+
+      addLog('signal', `recv ${msg.type}`);
+
+      // ---- маршрутизация типов сообщений ----
+      switch (msg.type) {
+        // Handshake от сервера сигналинга
+        case 'hello': {
           memberId = msg.memberId;
           setStatus(`WS ok. Комната ${roomId}`, 'ok');
-          resolve(msg);
-          return;
+          resolve(msg); // подключение успешно
+          break;
         }
 
-        if (msg.type === 'member.joined') {
+        // В комнату вошёл второй участник
+        case 'member.joined': {
           noteEl.textContent = 'В комнату вошёл участник';
-          if (role === 'caller') sendOfferIfPossible(); // оффер пошлём сразу, если готовы
-          return;
+          // Если мы Caller и уже подготовили PC/микрофон — отправим offer немедленно
+          if (role === 'caller') {
+            sendOfferIfPossible();
+          }
+          break;
         }
 
-        if (msg.type === 'member.left') {
+        // Участник покинул комнату
+        case 'member.left': {
           noteEl.textContent = 'Участник покинул комнату';
-          return;
+          break;
         }
 
-        if (msg.type === 'offer') {
+        // Пришёл удалённый OFFER (для callee)
+        case 'offer': {
           pendingOffer = msg.payload;
           incoming.classList.remove('hidden');
           setStatus('Входящий звонок — нажмите Принять', 'warn');
-          return;
+          break;
         }
 
-        if (msg.type === 'answer') {
-          if (!pc) { addLog('error','answer without pc'); return; }
+        // Пришёл ANSWER (для caller)
+        case 'answer': {
+          if (!pc) {
+            addLog('error', 'answer without pc');
+            return;
+          }
+
           pc.setRemoteDescription(new RTCSessionDescription(msg.payload))
-            .then(() => addLog('webrtc', 'answer applied'))
-            .catch((e) => {
+            .then(() => {
+              addLog('webrtc', 'answer applied');
+
+              // Флаг — удалённое SDP установлено
+              remoteDescApplied = true;
+
+              // Проливаем ранее буферизированные ICE
+              pendingRemoteICE.forEach(cand =>
+                pc.addIceCandidate(new RTCIceCandidate(cand))
+                  .catch(e => addLog('error', 'addIce(flush): ' + e.message))
+              );
+              pendingRemoteICE = [];
+            })
+            .catch(e => {
               addLog('error', 'apply answer: ' + e.message);
               setStatus('ошибка ответа', 'err');
             });
-          return;
+          break;
         }
 
-        if (msg.type === 'ice') {
-          if (!pc) return;
+        // Пришёл удалённый ICE-кандидат
+        case 'ice': {
           const c = msg.payload;
-          if (c && c.candidate) {
+          if (!c || !c.candidate) return;
+
+          // Если PC ещё не создан или remote SDP не применён — буферизуем
+          if (!pc || !remoteDescApplied) {
+            pendingRemoteICE.push(c);
+            addLog('signal', 'buffer ICE (' + pendingRemoteICE.length + ')');
+          } else {
             pc.addIceCandidate(new RTCIceCandidate(c))
-              .catch((e) => addLog('error','addIce: '+e.message));
+              .then(() => addLog('webrtc', 'addIce ok'))
+              .catch(e => addLog('error', 'addIce: ' + e.message));
           }
-          return;
+          break;
         }
 
-        if (msg.type === 'error') {
+        // Ошибка от сигналинга
+        case 'error': {
           setStatus('Ошибка от сервера', 'err');
           addLog('error', msg.code || 'unknown');
-          return;
+          break;
         }
-      };
-    });
-  }
+
+        // Технические keep-alive
+        case 'ping':
+        case 'pong': {
+          // no-op
+          break;
+        }
+
+        // Неподдерживаемый тип — просто залогируем
+        default: {
+          addLog('warn', 'unknown ws type: ' + msg.type);
+        }
+      }
+    };
+  });
+}
 
   function shareRoomLink(rid) {
     const base = location.origin + location.pathname;
@@ -358,6 +437,8 @@
   // -----------------------------
   /** Глобальное состояние PC/микрофона/сигналинга */
   let pc = null;
+  let pendingRemoteICE = [];           // буфер входящих ICE
+  let remoteDescApplied = false;       // флаг, что удалённое SDP уже применили
   let localStream = null;
   let pendingOffer = null;
   let offerSent = false;
