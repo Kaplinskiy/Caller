@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
@@ -164,6 +164,9 @@
 
   const logList       = document.getElementById('logList');
   const btnCopyDiag   = document.getElementById('btnCopyDiag');
+
+  // КЭШ исходящих ICE-кандидатов (чтобы переотправлять опоздавшему собеседнику)
+  const outIceCandidates = [];
 
   function setStatus(text, cls = '') {
     statusEl.textContent = text;
@@ -338,6 +341,11 @@ function connectWS(_role, rid) {
           // Если мы Caller и уже подготовили PC/микрофон — отправим offer немедленно
           if (role === 'caller') {
             sendOfferIfPossible();
+            if (outIceCandidates.length) {
+              addLog('signal', `replay ${outIceCandidates.length} ICE`);
+              for (const c of outIceCandidates) {
+              wsSend('ice', c);
+            }
           }
           break;
         }
@@ -466,7 +474,14 @@ function connectWS(_role, rid) {
     });
 
     pc.onicecandidate = (ev) => {
-      if (ev.candidate) wsSend('ice', ev.candidate.toJSON());
+      if (ev.candidate) {
+        const c = ev.candidate.toJSON();
+        outIceCandidates.push(c);           // копим
+        wsSend('ice', c);                   // и сразу отсылаем
+      } else {
+        // конец сбора — можно пометить, если хочешь
+        addLog('webrtc', 'ICE gathering complete');
+      }
     };
 
     pc.oniceconnectionstatechange = () => {
