@@ -202,38 +202,36 @@
   }
 
   function renderEnv() {
-    const secure = window.isSecureContext;
-    const proto  = location.protocol;
-    const hasGUM = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    const hasPC  = (typeof RTCPeerConnection === 'function');
-    const d      = detectInApp();
+  const secure = window.isSecureContext;
+  const proto  = location.protocol;
+  const hasGUM = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const hasPC  = (typeof RTCPeerConnection === 'function');
+  const d      = detectInApp();
 
-    dbgProto.textContent  = proto;
-    dbgSecure.textContent = String(secure);
-    dbgGUM.textContent    = String(hasGUM);
-    dbgPC.textContent     = String(hasPC);
-    dbgUA.textContent     = navigator.userAgent;
-    dbgInApp.textContent  = d.inApp ? 'in-app' : 'нет';
+  dbgProto.textContent  = proto;
+  dbgSecure.textContent = String(secure);
+  dbgGUM.textContent    = String(hasGUM);
+  dbgPC.textContent     = String(hasPC);
+  dbgUA.textContent     = navigator.userAgent;
+  dbgInApp.textContent  = d.inApp ? 'in-app' : 'нет';
 
-    // Покажем предупреждение, если среда проблемная
-    if (!secure || !hasGUM || !hasPC || d.inApp) {
-      envBanner.classList.remove('hidden');
-      envBanner.innerHTML = `
-        <b>Внимание:</b>
-        <ul>
-          ${!secure ? '<li>Нужен HTTPS</li>' : ''}
-          {!hasGUM ? '<li>getUserMedia недоступен</li>' : ''}
-          ${!hasPC ? '<li>WebRTC недоступен</li>' : ''}
-          ${d.inApp ? '<li>Открыть во внешнем браузере (Share → Open in Browser)</li>' : ''}
-        </ul>
-      `.replace('{!hasGUM','${'); // мелкий трюк, чтобы не конфликтовало со строковым шаблоном
-    }
+  if (!secure || !hasGUM || !hasPC || d.inApp) {
+    const items = [];
+    if (!secure) items.push('<li>Нужен HTTPS</li>');
+    if (!hasGUM) items.push('<li>getUserMedia недоступен</li>');
+    if (!hasPC)  items.push('<li>WebRTC недоступен</li>');
+    if (d.inApp) items.push('<li>Откройте во внешнем браузере (Share → Open in Browser)</li>');
+
+    envBanner.classList.remove('hidden');
+    envBanner.innerHTML = `<b>Внимание:</b><ul>${items.join('')}</ul>`;
   }
+}
 
   // -----------------------------
   // Сигналинг (Render WebSocket)
   // -----------------------------
-  const SERVER_URL = 'https://webrtc-signal-4t7n.onrender.com';
+  const SERVER_URL = 'https://call.zababba.com/signal';
+  const WS_URL = 'wss://call.zababba.com/ws';
 
   let ws       = null;
   let roomId   = null;
@@ -271,9 +269,12 @@ function connectWS(_role, rid) {
     roomId = rid;
 
     // Строим ws:// или wss:// URL на основе SERVER_URL
-    const url = `${SERVER_URL.replace('http', 'ws')}/ws` +
-                `?roomId=${encodeURIComponent(rid)}` +
-                `&role=${encodeURIComponent(_role)}`;
+    // было:
+// const url = `${WS_URL.replace('http', 'ws')}/ws?roomId=${encodeURIComponent(rid)}&role=${encodeURIComponent(_role)}`;
+
+// нужно:
+const url =
+  `${WS_URL}?roomId=${encodeURIComponent(rid)}&role=${encodeURIComponent(_role)}`;
 
     addLog('signal', `connect WS ${url}`);
 
